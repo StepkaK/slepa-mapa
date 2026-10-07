@@ -3,18 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Slepá mapa ČR – Geografické extrémy</title>
+  <title>Slepá mapa ČR</title>
 
-  <!-- Bootstrap 5 CSS -->
+  <!-- CSS Knihovny -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <!-- Vlastní CSS styly -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="d-flex flex-column vh-100 overflow-hidden bg-light">
 
-  <!-- Horní lišta (Bootstrap Navbar) -->
+  <!-- Navigace -->
   <header class="navbar navbar-dark bg-dark px-3 shadow-sm">
     <span class="navbar-brand mb-0 h1 fs-4 fw-bold">Slepá mapa ČR</span>
     <div class="d-flex gap-2">
@@ -23,16 +21,16 @@
     </div>
   </header>
 
-  <!-- Poutač s hledaným cílem -->
+  <!-- Target Banner -->
   <div id="target-container" class="bg-secondary text-white text-center py-2 px-3 shadow-sm">
     <span class="fs-5 fw-medium">Najdi na mapě: </span>
     <span id="target-name" class="fs-4 fw-bold text-warning d-inline-block ms-1">Načítám data...</span>
   </div>
 
-  <!-- Container s mapou -->
+  <!-- Mapa -->
   <div id="map" class="flex-grow-1"></div>
 
-  <!-- Vyskakovací okno po vyhodnocení -->
+  <!-- Modal -->
   <div id="overlay" class="position-fixed top-0 start-0 w-100 h-100 justify-content-center align-items-center">
     <div class="card shadow-lg p-4 text-center border-0 modal-card">
       <h2 id="modal-title" class="h3 fw-bold mb-3 text-dark">Vyhodnocení</h2>
@@ -41,132 +39,8 @@
     </div>
   </div>
 
-  <!-- Leaflet JS -->
+  <!-- Skripty -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- Herní skript -->
-  <script>
-    // --- KONFIGURACE A PROMĚNNÉ ---
-    const MAX_DISTANCE_KM = 30; // Tolerance vzdálenosti v km
-    const TIME_LIMIT = 30;
-
-    let locations = [];
-    let currentLocationIndex = 0;
-    let score = 0;
-    let timer = TIME_LIMIT;
-    let timerInterval = null;
-    let map = null;
-    let userMarker = null;
-    let targetMarker = null;
-    let polyline = null;
-    let isAnswered = false;
-
-    // Vrstvy mapy
-    let baseSlepaMapa, overlayKraje, overlayReky;
-
-    // --- INICIALIZACE MAPY S VRSTVAMI (BEZ API KLÍČE) ---
-    function initMap() {
-      // 1. Čistá slepá mapa bez popisků (Esri World Canvas)
-      baseSlepaMapa = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri',
-        maxZoom: 16, 
-        minZoom: 7
-      });
-
-      // 2. Vodní toky a plochy
-      overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.fr/openriverindex/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        opacity: 0.7
-      });
-
-      // 3. Hranice a popisky měst (Esri World Canvas Reference)
-      overlayKraje = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri',
-        maxZoom: 16,
-        opacity: 0.8
-      });
-
-      // Inicializace mapy s výchozí slepou vrstvou
-      map = L.map('map', {
-        zoomControl: true,
-        doubleClickZoom: false,
-        layers: [baseSlepaMapa]
-      }).setView([49.8175, 15.4730], 8);
-
-      // Přepínač vrstev v pravém horním rohu
-      const overlayMaps = {
-        "Hranice a popisky": overlayKraje,
-        "Vodní toky": overlayReky
-      };
-
-      L.control.layers(null, overlayMaps, { position: 'topright' }).addTo(map);
-
-      map.on('click', onMapClick);
-    }
-
-    // --- NAČTENÍ DATA Z JSON SOUBORU ---
-    function loadData() {
-      fetch('zajimavosti.json')
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('Nelze načíst soubor zajimavosti.json');
-          }
-          return response.json();
-        })
-        .then(data => {
-          locations = data.sort(() => 0.5 - Math.random());
-          if (locations.length > 0) {
-            startGame();
-          } else {
-            document.getElementById('target-name').innerText = 'Soubor JSON je prázdný!';
-          }
-        })
-        .catch(error => {
-          console.error(error);
-          document.getElementById('target-name').innerText = 'Chyba při načítání dat!';
-        });
-    }
-
-    // --- HERNÍ LOGIKA ---
-    function startGame() {
-      currentLocationIndex = 0;
-      score = 0;
-      document.getElementById('score').innerText = score;
-      setupRound();
-    }
-
-    function setupRound() {
-      isAnswered = false;
-      clearMapLayers();
-      
-      const currentTarget = locations[currentLocationIndex];
-      document.getElementById('target-name').innerText = currentTarget.name;
-
-      timer = TIME_LIMIT;
-      document.getElementById('timer').innerText = timer;
-      clearInterval(timerInterval);
-      timerInterval = setInterval(() => {
-        timer--;
-        document.getElementById('timer').innerText = timer;
-        if (timer <= 0) {
-          clearInterval(timerInterval);
-          handleTimeout();
-        }
-      }, 1000);
-    }
-
-    function onMapClick(e) {
-      if (isAnswered || locations.length === 0) return;
-      isAnswered = true;
-      clearInterval(timerInterval);
-
-      const userLat = e.latlng.lat;
-      const userLng = e.latlng.lng;
-      const target = locations[currentLocationIndex];
-
-      const targetLatLng = L.latLng(target.lat, target.lon);
-      const userLatLng = L.latLng(userLat, userLng);
-      const distanceMeters = userLatLng.distanceTo(targetLatLng);
-      const distanceKm = Math.round(distanceMeters / 1000);
-
-      const is
+  <script src="app.js"></script>
+</body>
+</html>
