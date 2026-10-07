@@ -20,30 +20,34 @@
     <div class="ms-auto d-flex align-items-center me-3">
       <label for="json-select" class="text-white me-2 fw-medium">Kategorie:</label>
       <select id="json-select" class="form-select form-select-sm">
+        <option value="zajimavosti.json">Zajímavosti a rekordy</option>
         <option value="mesta.json">Města</option>
-        <option value="hory.json">Hory a vrcholy</option>
-        <option value="vodstvo.json">Vodní plochy</option>
+        <option value="priroda.json">Hory a vrcholy (příroda)</option>
+        <option value="zamky.json">Zámky</option>
+         <option value="zajimavosti.json">Zajímavosti</option>
       </select>
     </div>
     
     <div class="d-flex gap-2 align-items-center">
       <div class="badge bg-secondary fs-6 px-3 py-2">Skóre: <span id="score" class="text-warning">0</span></div>
       <div class="badge bg-secondary fs-6 px-3 py-2">Čas: <span id="timer" class="text-info">30</span>s</div>
-      <!-- Tlačítko Další v liště -->
       <button id="next-header-btn" class="btn btn-outline-light btn-sm fw-bold ms-1">Další ➔</button>
     </div>
   </header>
 
-  <!-- Target Banner -->
-  <div id="target-container" class="bg-secondary text-white text-center py-2 px-3 shadow-sm">
-    <span class="fs-5 fw-medium">Najdi na mapě: </span>
-    <span id="target-name" class="fs-4 fw-bold text-warning d-inline-block ms-1">Načítám data...</span>
+  <!-- Target Banner s tlačítkem Hotovo -->
+  <div id="target-container" class="bg-secondary text-white d-flex justify-content-center align-items-center py-2 px-3 shadow-sm gap-3">
+    <div>
+      <span class="fs-5 fw-medium">Najdi na mapě: </span>
+      <span id="target-name" class="fs-4 fw-bold text-warning d-inline-block ms-1">Načítám data...</span>
+    </div>
+    <button id="confirm-btn" class="btn btn-warning btn-sm fw-bold px-3 shadow-sm" disabled>Hotovo ✓</button>
   </div>
 
   <!-- Mapa -->
   <div id="map" class="flex-grow-1"></div>
 
-  <!-- Modal -->
+  <!-- Modal / Výsledkové okno -->
   <div id="overlay" class="position-fixed top-0 start-0 w-100 h-100 justify-content-center align-items-center">
     <div class="card shadow-lg p-4 text-center border-0 modal-card">
       <h2 id="modal-title" class="h3 fw-bold mb-3 text-dark">Vyhodnocení</h2>
