@@ -1,0 +1,10 @@
+[
+  { "name": "Sněžka", "lat": 50.7360, "lon": 15.7396 },
+  { "name": "Praděd", "lat": 50.0831, "lon": 17.2311 },
+  { "name": "Karlštejn", "lat": 49.9392, "lon": 14.1882 },
+  { "name": "Brno", "lat": 49.1951, "lon": 16.6068 },
+  { "name": "Pravčická brána", "lat": 50.8840, "lon": 14.2817 },
+  { "name": "Máchovo jezero", "lat": 50.5815, "lon": 14.6548 },
+  { "name": "České Budějovice", "lat": 48.9745, "lon": 14.4743 },
+  { "name": "Ještěd", "lat": 50.7328, "lon": 15.0028 }
+]
