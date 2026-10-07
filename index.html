@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Slepá mapa ČR - Soutěž</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #fff; text-align: center; }
+    #header { padding: 10px; background: #1e293b; display: flex; justify-content: space-between; align-items: center; }
+    #controls { padding: 8px; background: #334155; display: flex; justify-content: center; gap: 10px; align-items: center; }
+    #map { height: calc(100vh - 120px); width: 100vw; background: #020617; }
+    
+    .btn { background: #2563eb; color: white; border: none; padding: 8px 16px; font-size: 1rem; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    .btn:disabled { background: #64748b; cursor: not-allowed; }
+    .btn-confirm { background: #16a34a; font-size: 1.1rem; padding: 10px 20px; }
+    
+    #timer { font-size: 1.3rem; font-weight: bold; color: #f59e0b; width: 60px; }
+    .black-dot { background-color: #000; border: 2px solid #fff; border-radius: 50%; }
+  </style>
+</head>
+<body>
+
+  <div id="header">
+    <div style="font-size: 1.2rem;">Hledáme: <strong id="target-name" style="color: #38bdf8;">Praděd</strong></div>
+    <div id="timer">30s</div>
+    <button id="done-btn" class="btn btn-confirm" onclick="confirmGuess()" disabled>HOTOVO</button>
+  </div>
+
+  <div id="controls">
+    <label>Mapa: </label>
+    <button class="btn" onclick="loadMapLayer('border')">Jen ČR</button>
+    <button class="btn" onclick="loadMapLayer('regions')">Kraje</button>
+    <button class="btn" onclick="loadMapLayer('rivers')">Kraje + Řeky</button>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const target = { name: "Praděd", lat: 50.0831, lon: 17.2311 };
+    const TOLERANCE_KM = 50;
+
+    const map = L.map('map', {
+      zoomControl: false, dragging: false, touchZoom: false, doubleClickZoom: false, scrollWheelZoom: false
+    }).setView([49.8175, 15.4730], 7.5);
+
+    let currentLayers = [];
+    let userCircle = null;
+    let targetDot = null;
+    let lastClickPos = null;
+    let timeLeft = 30;
+    let timerInterval = null;
+    let isLocked = false;
+
+    // Zdrojové GeoJSON soubory pro různé verze podkladu
+    const GEO_SOURCES = {
+      border: 'https://raw.githubusercontent.com/mledoze/countries/master/data/cze.geo.json',
+      regions: 'https://raw.githubusercontent.com/simonepri/geo-maps/master/preproc/geojson/world-administrative-boundaries.json' // případně jiný zdroj krajů ČR
+    };
+
+    function clearMapLayers() {
+      currentLayers.forEach(l => map.removeLayer(l));
+      currentLayers = [];
+    }
+
+    // Načítání vybraného typu podkladové mapy
+    function loadMapLayer(type) {
+      clearMapLayers();
+      
+      // Základní obrys ČR
+      fetch(GEO_SOURCES.border)
+        .then(res => res.json())
+        .then(data => {
+          const borderLayer = L.geoJSON(data, {
+            style: { color: '#94a3b8', weight: 2, fillColor: '#1e293b', fillOpacity: 0.9 }
+          }).addTo(map);
+          currentLayers.push(borderLayer);
+        });
+    }
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      timeLeft = 30;
+      document.getElementById('timer').innerText = `${timeLeft}s`;
+      
+      timerInterval = setInterval(() => {
+        timeLeft--;
+        document.getElementById('timer').innerText = `${timeLeft}s`;
+        if (timeLeft <= 0) {
+          clearInterval(timerInterval);
+          confirmGuess(); // Čas vypršel -> automatické potvrdit
+        }
+      }, 1000);
+    }
+
+    function getDistanceKm(lat1, lon1, lat2, lon2) {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    // Kliknutí hráče (může měnit pozici dokud se nepotvrdí)
+    map.on('click', function(e) {
+      if (isLocked) return;
+
+      lastClickPos = e.latlng;
+      document.getElementById('done-btn').disabled = false; // Povolit tlačítko HOTOVO
+
+      if (userCircle) map.removeLayer(userCircle);
+
+      // Oranžový puk na zkoušku
+      userCircle = L.circle([lastClickPos.lat, lastClickPos.lng], {
+        radius: TOLERANCE_KM * 1000,
+        color: '#f97316',
+        fillColor: '#f97316',
+        fillOpacity: 0.4,
+        weight: 3
+      }).addTo(map);
+    });
+
+    // Potvrzení tipu (stisk HOTOVO nebo vypršení času)
+    function confirmGuess() {
+      if (isLocked || !lastClickPos) return;
+      isLocked = true;
+      clearInterval(timerInterval);
+      document.getElementById('done-btn').disabled = true;
+
+      const dist = getDistanceKm(lastClickPos.lat, lastClickPos.lng, target.lat, target.lon);
+      const isHit = dist <= TOLERANCE_KM;
+
+      // Vyhodnocení: Zobrazení černé tečky a přebarvení
+      targetDot = L.circleMarker([target.lat, target.lon], {
+        className: 'black-dot', radius: 8, color: '#fff', weight: 2, fillColor: '#000', fillOpacity: 1
+      }).addTo(map);
+
+      const finalColor = isHit ? '#22c55e' : '#ef4444';
+      userCircle.setStyle({ color: finalColor, fillColor: finalColor });
+      
+      targetDot.bindPopup(`<b>${target.name}</b><br>Odchylka: ${dist.toFixed(1)} km`).openPopup();
+    }
+
+    // Start hry
+    loadMapLayer('border');
+    startTimer();
+  </script>
+</body>
+</html>
