@@ -1,4 +1,7 @@
-// Konfigurace aplikace
+/**
+ * Slepá mapa ČR – Hlavní aplikační logika
+ */
+
 const CONFIG = {
   mapCenter: [49.8175, 15.4730],
   defaultZoom: 8,
@@ -6,79 +9,75 @@ const CONFIG = {
   toleranceKm: 30
 };
 
-// Stavové proměnné
-let map;
-let targets = []; // Dynamicky načítaná databáze
-let currentTarget = null;
-let score = 0;
-let timer = null;
-let timeLeft = CONFIG.roundTime;
-let activeMarker = null;
+// Aplikační stav
+const state = {
+  map: null,
+  targets: [],
+  availableTargets: [],
+  currentTarget: null,
+  score: 0,
+  timer: null,
+  timeLeft: CONFIG.roundTime,
+  activeMarker: null,
+  abortController: null
+};
 
-// Vrstvy mapy
-let overlayHranice;
-let overlayPopisky;
-let overlayReky;
-
-// Inicializace po načtení stránky
+// Inicializace aplikace
 document.addEventListener("DOMContentLoaded", () => {
-  try {
-    initMap();
-    loadSelectedJson(); // Načte výchozí zvolený JSON
-  } catch (err) {
-    console.error("Chyba při inicializaci:", err);
-  }
+  initMap();
+  initEventListeners();
+  loadSelectedJson();
 });
 
-// Funkce pro načtení vybraného JSON souboru
-async function loadSelectedJson() {
-  const selectElem = document.getElementById("json-select");
-  const fileName = selectElem ? selectElem.value : "mesta.json";
+/**
+ * Navázání událostí na prvky (bez inline atributů v HTML)
+ */
+function initEventListeners() {
+  const jsonSelect = document.getElementById("json-select");
+  const nextBtn = document.getElementById("next-btn");
+  const nextHeaderBtn = document.getElementById("next-header-btn");
 
-  try {
-    const response = await fetch(fileName);
-    if (!response.ok) {
-      throw new Error(`Nelze načíst soubor ${fileName}`);
-    }
-    targets = await response.json();
-    
-    // Po načtení nových dat spustíme nové kolo
-    nextRound();
-  } catch (err) {
-    console.error("Chyba při načítání JSON dat:", err);
-    document.getElementById("target-name").textContent = "Chyba načítání dat";
+  if (jsonSelect) {
+    jsonSelect.addEventListener("change", loadSelectedJson);
+  }
+  
+  if (nextBtn) {
+    nextBtn.addEventListener("click", nextRound);
+  }
+
+  if (nextHeaderBtn) {
+    nextHeaderBtn.addEventListener("click", nextRound);
   }
 }
 
-// Inicializace Leaflet mapy
+/**
+ * Inicializace Leaflet mapy
+ */
 function initMap() {
+  // 1. ZÁKLAD: Čistá slepá mapa bez popisků a hranic (CARTO Positron No Labels)
   const baseSlepaMapa = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{y}/{x}{r}.png', {
-    attribution: '&copy; OpenStreetMap, &copy; CARTO',
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
     subdomains: 'abcd',
     maxZoom: 16,
     minZoom: 7
   });
 
-  overlayHranice = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  // 2. VRSTVA: Pouze hranice států/krajů (Esri World Transportation / Reference)
+  const overlayHranice = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri',
     maxZoom: 16,
-    opacity: 0.5
+    opacity: 0.45
   });
 
-  overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap',
-    maxZoom: 16,
-    opacity: 0.35
-  });
-
-  overlayPopisky = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{y}/{x}{r}.png', {
+  // 3. VRSTVA: Pouze popisky a názvy měst (CARTO Labels)
+  const overlayPopisky = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{y}/{x}{r}.png', {
     attribution: '&copy; CARTO',
     subdomains: 'abcd',
     maxZoom: 16,
     opacity: 0.85
   });
 
-  map = L.map('map', {
+  state.map = L.map('map', {
     zoomControl: true,
     doubleClickZoom: false,
     layers: [baseSlepaMapa]
@@ -86,59 +85,96 @@ function initMap() {
 
   const overlayMaps = {
     "Hranice": overlayHranice,
-    "Vodní toky a řeky": overlayReky,
     "Popisky a názvy": overlayPopisky
   };
 
-  L.control.layers(null, overlayMaps, { collapsed: true }).addTo(map);
-  map.on('click', handleMapClick);
+  L.control.layers(null, overlayMaps, { collapsed: true }).addTo(state.map);
+  state.map.on('click', handleMapClick);
 }
 
-// Spuštění nového kola
+/**
+ * Načtení datové sady podle výběru v rozbalovacím menu
+ */
+async function loadSelectedJson() {
+  const selectElem = document.getElementById("json-select");
+  const fileName = selectElem ? selectElem.value : "mesta.json";
+
+  if (state.abortController) {
+    state.abortController.abort();
+  }
+  state.abortController = new AbortController();
+
+  try {
+    const response = await fetch(fileName, { signal: state.abortController.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP chyba ${response.status} při načítání ${fileName}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!Array.isArray(data) || data.length === 0) {
+      throw new Error("Načtený JSON neobsahuje platné pole cílů.");
+    }
+
+    state.targets = data;
+    state.availableTargets = [...data];
+    
+    nextRound();
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    console.error("Chyba při načítání JSON dat:", err);
+    
+    const targetElem = document.getElementById("target-name");
+    if (targetElem) targetElem.textContent = "Chyba načítání dat";
+  }
+}
+
+/**
+ * Zahájení nového kola
+ */
 function nextRound() {
   hideModal();
+  clearInterval(state.timer);
 
-  if (activeMarker) {
-    map.removeLayer(activeMarker);
-    activeMarker = null;
+  if (state.activeMarker) {
+    state.map.removeLayer(state.activeMarker);
+    state.activeMarker = null;
   }
 
-  // Kontrola, zda jsou data načtena
-  if (!targets || targets.length === 0) {
-    document.getElementById("target-name").textContent = "Žádná data k dispozici";
-    return;
+  if (state.availableTargets.length === 0) {
+    state.availableTargets = [...state.targets];
   }
 
-  // Výběr náhodného cíle z načteného JSONu
-  const randomIndex = Math.floor(Math.random() * targets.length);
-  currentTarget = targets[randomIndex];
-  
+  const randomIndex = Math.floor(Math.random() * state.availableTargets.length);
+  state.currentTarget = state.availableTargets.splice(randomIndex, 1)[0];
+
   const targetElem = document.getElementById("target-name");
-  if (targetElem) {
-    targetElem.textContent = currentTarget.name;
+  if (targetElem && state.currentTarget) {
+    targetElem.textContent = state.currentTarget.name;
   }
 
   resetTimer();
 }
 
-// Reakce na kliknutí do mapy
+/**
+ * Zpracování kliknutí uživatele do mapy
+ */
 function handleMapClick(e) {
-  if (!currentTarget || timeLeft <= 0) return;
+  if (!state.currentTarget || state.timeLeft <= 0) return;
 
-  clearInterval(timer);
+  clearInterval(state.timer);
 
   const clickedCoords = [e.latlng.lat, e.latlng.lng];
-  const distance = calculateDistance(clickedCoords, currentTarget.coords);
+  const distance = calculateDistance(clickedCoords, state.currentTarget.coords);
 
-  activeMarker = L.marker(currentTarget.coords).addTo(map);
+  state.activeMarker = L.marker(state.currentTarget.coords).addTo(state.map);
 
   let title = "";
   let text = "";
 
   if (distance <= CONFIG.toleranceKm) {
-    score += 1;
-    const scoreElem = document.getElementById("score");
-    if (scoreElem) scoreElem.textContent = score;
+    state.score += 1;
+    updateScoreUI();
     title = "Výborně!";
     text = `Vedle o ${Math.round(distance)} km. Získáváš 1 bod.`;
   } else {
@@ -149,40 +185,51 @@ function handleMapClick(e) {
   showModal(title, text);
 }
 
-// Časovač
+/**
+ * Správa časovače
+ */
 function resetTimer() {
-  clearInterval(timer);
-  timeLeft = CONFIG.roundTime;
+  clearInterval(state.timer);
+  state.timeLeft = CONFIG.roundTime;
   
-  const timerElem = document.getElementById("timer");
-  if (timerElem) timerElem.textContent = timeLeft;
+  updateTimerUI();
 
-  timer = setInterval(() => {
-    timeLeft--;
-    if (timerElem) timerElem.textContent = timeLeft;
+  state.timer = setInterval(() => {
+    state.timeLeft--;
+    updateTimerUI();
 
-    if (timeLeft <= 0) {
-      clearInterval(timer);
-      showModal("Čas vypršel!", `Správné místo bylo: ${currentTarget.name}`);
-      activeMarker = L.marker(currentTarget.coords).addTo(map);
+    if (state.timeLeft <= 0) {
+      clearInterval(state.timer);
+      showModal("Čas vypršel!", `Správné místo bylo: ${state.currentTarget.name}`);
+      state.activeMarker = L.marker(state.currentTarget.coords).addTo(state.map);
     }
   }, 1000);
 }
 
-// Výpočet vzdálenosti
+/**
+ * Pomocné funkce
+ */
 function calculateDistance(coords1, coords2) {
   const R = 6371;
   const dLat = (coords2[0] - coords1[0]) * Math.PI / 180;
   const dLon = (coords2[1] - coords1[1]) * Math.PI / 180;
   const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLat / 2) ** 2 +
     Math.cos(coords1[0] * Math.PI / 180) * Math.cos(coords2[0] * Math.PI / 180) * 
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+    Math.sin(dLon / 2) ** 2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-// Modál
+function updateScoreUI() {
+  const scoreElem = document.getElementById("score");
+  if (scoreElem) scoreElem.textContent = state.score;
+}
+
+function updateTimerUI() {
+  const timerElem = document.getElementById("timer");
+  if (timerElem) timerElem.textContent = state.timeLeft;
+}
+
 function showModal(title, text) {
   const titleElem = document.getElementById("modal-title");
   const textElem = document.getElementById("modal-text");
