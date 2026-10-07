@@ -15,7 +15,8 @@ let timeLeft = CONFIG.roundTime;
 let activeMarker = null;
 
 // Vrstvy mapy
-let overlayKraje;
+let overlayHranice;
+let overlayPopisky;
 let overlayReky;
 
 // Databáze cílů
@@ -26,7 +27,7 @@ const targets = [
   { name: "Plzeň", coords: [49.7384, 13.3736] },
   { name: "Sněžka", coords: [50.7360, 15.7396] },
   { name: "Ještěd", coords: [50.7326, 15.0084] },
-  { name: "Machačovo jezero", coords: [50.5806, 14.6542] },
+  { name: "Máchovo jezero", coords: [50.5806, 14.6542] },
   { name: "České Budějovice", coords: [48.9745, 14.4743] }
 ];
 
@@ -38,23 +39,31 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Inicializace Leaflet mapy
 function initMap() {
-  // Podkladová slepá mapa (Světlá šedá base mapa)
+  // Podkladová čistá slepá mapa bez popisků a hranic
   const baseSlepaMapa = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri',
     maxZoom: 16,
     minZoom: 7
   });
 
-  // Doplňkové vrstvy
-  overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.fr/openriverindex/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    opacity: 0.7
+  // 1. Vrstva: Samotné hranice (CartoDB Positron Boundaries)
+  overlayHranice = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_lines/{z}/{y}/{x}{r}.png', {
+    attribution: '&copy; CartoDB',
+    maxZoom: 16,
+    opacity: 0.8
   });
 
-  overlayKraje = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+  // 2. Vrstva: Samotné popisky (Esri Canvas Light Reference)
+  overlayPopisky = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri',
     maxZoom: 16,
     opacity: 0.8
+  });
+
+  // 3. Vrstva: Vodní toky
+  overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.fr/openriverindex/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    opacity: 0.7
   });
 
   // Vytvoření mapy
@@ -64,13 +73,14 @@ function initMap() {
     layers: [baseSlepaMapa]
   }).setView(CONFIG.mapCenter, CONFIG.defaultZoom);
 
-  // Objekt pro ovládání vrstev pod ikonkou
+  // Objekt pro ovládání 3 samostatných vrstev v nabídce
   const overlayMaps = {
-    "Hranice a popisky": overlayKraje,
-    "Vodní toky": overlayReky
+    "Hranice": overlayHranice,
+    "Vodní toky": overlayReky,
+    "Popisky a názvy": overlayPopisky
   };
 
-  // Přidání ovládacího prvku vrstev v rohu mapy
+  // Přidání ovládacího prvku vrstev v pravém horním rohu mapy
   L.control.layers(null, overlayMaps, { collapsed: true }).addTo(map);
 
   // Posluchač kliknutí na mapu
@@ -118,7 +128,7 @@ function handleMapClick(e) {
     text = `Vedle o ${Math.round(distance)} km. Získáváš 10 bodů.`;
   } else {
     title = "Vedle!";
-    text = `Cíl bol vzdálený ${Math.round(distance)} km od tvého tipu.`;
+    text = `Cíl byl vzdálený ${Math.round(distance)} km od tvého tipu.`;
   }
 
   showModal(title, text);
@@ -160,3 +170,8 @@ function showModal(title, text) {
   document.getElementById("modal-title").textContent = title;
   document.getElementById("modal-text").textContent = text;
   document.getElementById("overlay").style.display = "flex";
+}
+
+function hideModal() {
+  document.getElementById("overlay").style.display = "none";
+}
