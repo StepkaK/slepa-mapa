@@ -15,6 +15,15 @@
   <!-- Navigace -->
   <header class="navbar navbar-dark bg-dark px-3 shadow-sm">
     <span class="navbar-brand mb-0 h1 fs-4 fw-bold">Slepá mapa ČR</span>
+    <!-- Výběr kategorie JSON -->
+<div class="ms-auto d-flex align-items-center me-3">
+  <label for="json-select" class="text-white me-2 fw-medium">Kategorie:</label>
+  <select id="json-select" class="form-select form-select-sm" onchange="loadSelectedJson()">
+    <option value="mesta.json">Města</option>
+    <option value="hory.json">Hory a vrcholy</option>
+    <option value="vodstvo.json">Vodní plochy</option>
+  </select>
+</div>
     
     <div class="d-flex gap-2">
       <div class="badge bg-secondary fs-6 px-3 py-2">Skóre: <span id="score" class="text-warning">0</span></div>
