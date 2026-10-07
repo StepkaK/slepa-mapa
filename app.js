@@ -1,13 +1,14 @@
 // Konfigurace aplikace
 const CONFIG = {
-  mapCenter: [49.8175, 15.4730], // Střed ČR
+  mapCenter: [49.8175, 15.4730],
   defaultZoom: 8,
-  roundTime: 30, // Čas na jedno kolo v sekundách
-  toleranceKm: 30 // Tolerance vzdálenosti pro úspěšný zásah v km
+  roundTime: 30,
+  toleranceKm: 30
 };
 
 // Stavové proměnné
 let map;
+let targets = []; // Dynamicky načítaná databáze
 let currentTarget = null;
 let score = 0;
 let timer = null;
@@ -19,76 +20,77 @@ let overlayHranice;
 let overlayPopisky;
 let overlayReky;
 
-// Databáze cílů
-const targets = [
-  { name: "Praha", coords: [50.0755, 14.4378] },
-  { name: "Brno", coords: [49.1951, 16.6068] },
-  { name: "Ostrava", coords: [49.8209, 18.2625] },
-  { name: "Plzeň", coords: [49.7384, 13.3736] },
-  { name: "Sněžka", coords: [50.7360, 15.7396] },
-  { name: "Ještěd", coords: [50.7326, 15.0084] },
-  { name: "Máchovo jezero", coords: [50.5806, 14.6542] },
-  { name: "České Budějovice", coords: [48.9745, 14.4743] }
-];
-
 // Inicializace po načtení stránky
 document.addEventListener("DOMContentLoaded", () => {
   try {
     initMap();
-    nextRound();
+    loadSelectedJson(); // Načte výchozí zvolený JSON
   } catch (err) {
     console.error("Chyba při inicializaci:", err);
   }
 });
 
+// Funkce pro načtení vybraného JSON souboru
+async function loadSelectedJson() {
+  const selectElem = document.getElementById("json-select");
+  const fileName = selectElem ? selectElem.value : "mesta.json";
+
+  try {
+    const response = await fetch(fileName);
+    if (!response.ok) {
+      throw new Error(`Nelze načíst soubor ${fileName}`);
+    }
+    targets = await response.json();
+    
+    // Po načtení nových dat spustíme nové kolo
+    nextRound();
+  } catch (err) {
+    console.error("Chyba při načítání JSON dat:", err);
+    document.getElementById("target-name").textContent = "Chyba načítání dat";
+  }
+}
+
 // Inicializace Leaflet mapy
 function initMap() {
-  // Podkladová čistá slepá mapa bez popisků a hranic
-  const baseSlepaMapa = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri',
+  const baseSlepaMapa = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{y}/{x}{r}.png', {
+    attribution: '&copy; OpenStreetMap, &copy; CARTO',
+    subdomains: 'abcd',
     maxZoom: 16,
     minZoom: 7
   });
 
-  // 1. Vrstva: Hranice a administrativní linie (CartoDB Positron Lines)
-  overlayHranice = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_lines/{z}/{y}/{x}{r}.png', {
-    attribution: '&copy; CartoDB',
+  overlayHranice = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 16,
+    opacity: 0.5
+  });
+
+  overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 16,
+    opacity: 0.35
+  });
+
+  overlayPopisky = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{y}/{x}{r}.png', {
+    attribution: '&copy; CARTO',
     subdomains: 'abcd',
     maxZoom: 16,
-    opacity: 0.8
+    opacity: 0.85
   });
 
-  // 2. Vrstva: Popisky a názvy (Esri Canvas Light Reference)
-  overlayPopisky = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri',
-    maxZoom: 16,
-    opacity: 0.8
-  });
-
-  // 3. Vrstva: Vodní plochy a toky (Esri Hydro / Reference Overlay)
-  overlayReky = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri',
-    maxZoom: 16,
-    opacity: 0.6
-  });
-
-  // Vytvoření mapy
   map = L.map('map', {
     zoomControl: true,
     doubleClickZoom: false,
     layers: [baseSlepaMapa]
   }).setView(CONFIG.mapCenter, CONFIG.defaultZoom);
 
-  // Objekt pro ovládání 3 samostatných vrstev v nabídce
   const overlayMaps = {
     "Hranice": overlayHranice,
+    "Vodní toky a řeky": overlayReky,
     "Popisky a názvy": overlayPopisky
   };
 
-  // Přidání ovládacího prvku vrstev v pravém horním rohu mapy
   L.control.layers(null, overlayMaps, { collapsed: true }).addTo(map);
-
-  // Posluchač kliknutí na mapu
   map.on('click', handleMapClick);
 }
 
@@ -96,13 +98,18 @@ function initMap() {
 function nextRound() {
   hideModal();
 
-  // Odstranění předchozího markeru
   if (activeMarker) {
     map.removeLayer(activeMarker);
     activeMarker = null;
   }
 
-  // Výběr náhodného cíle
+  // Kontrola, zda jsou data načtena
+  if (!targets || targets.length === 0) {
+    document.getElementById("target-name").textContent = "Žádná data k dispozici";
+    return;
+  }
+
+  // Výběr náhodného cíle z načteného JSONu
   const randomIndex = Math.floor(Math.random() * targets.length);
   currentTarget = targets[randomIndex];
   
@@ -111,7 +118,6 @@ function nextRound() {
     targetElem.textContent = currentTarget.name;
   }
 
-  // Reset a spuštění časovače
   resetTimer();
 }
 
@@ -124,18 +130,17 @@ function handleMapClick(e) {
   const clickedCoords = [e.latlng.lat, e.latlng.lng];
   const distance = calculateDistance(clickedCoords, currentTarget.coords);
 
-  // Zobrazení správného místa na mapě
   activeMarker = L.marker(currentTarget.coords).addTo(map);
 
   let title = "";
   let text = "";
 
   if (distance <= CONFIG.toleranceKm) {
-    score += 10;
+    score += 1;
     const scoreElem = document.getElementById("score");
     if (scoreElem) scoreElem.textContent = score;
     title = "Výborně!";
-    text = `Vedle o ${Math.round(distance)} km. Získáváš 10 bodů.`;
+    text = `Vedle o ${Math.round(distance)} km. Získáváš 1 bod.`;
   } else {
     title = "Vedle!";
     text = `Cíl byl vzdálený ${Math.round(distance)} km od tvého tipu.`;
@@ -164,9 +169,9 @@ function resetTimer() {
   }, 1000);
 }
 
-// Výpočet vzdálenosti v km (Haversine formule)
+// Výpočet vzdálenosti
 function calculateDistance(coords1, coords2) {
-  const R = 6371; // Poloměr Země v km
+  const R = 6371;
   const dLat = (coords2[0] - coords1[0]) * Math.PI / 180;
   const dLon = (coords2[1] - coords1[1]) * Math.PI / 180;
   const a = 
@@ -177,7 +182,7 @@ function calculateDistance(coords1, coords2) {
   return R * c;
 }
 
-// Zobrazení a skrytí modálu
+// Modál
 function showModal(title, text) {
   const titleElem = document.getElementById("modal-title");
   const textElem = document.getElementById("modal-text");
