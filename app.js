@@ -1,225 +1,162 @@
-/**
- * Slepa Mapa ČR - Herní Logika
- */
-
-// === CONFIG & STAV ===
+// Konfigurace aplikace
 const CONFIG = {
-  maxDistanceKm: 30,
-  timeLimit: 30,
-  mapCenter: [49.8175, 15.4730],
-  defaultZoom: 8
+  mapCenter: [49.8175, 15.4730], // Střed ČR
+  defaultZoom: 8,
+  roundTime: 30, // Čas na jedno kolo v sekundách
+  toleranceKm: 30 // Tolerance vzdálenosti pro úspěšný zásah v km
 };
 
-const state = {
-  locations: [],
-  currentIndex: 0,
-  score: 0,
-  timer: CONFIG.timeLimit,
-  timerInterval: null,
-  isAnswered: false
-};
+// Stavové proměnné
+let map;
+let currentTarget = null;
+let score = 0;
+let timer = null;
+let timeLeft = CONFIG.roundTime;
+let activeMarker = null;
 
-// Mapové objekty a vrstvy
-let map = null;
-let overlayKraje = null;
-let overlayReky = null;
-const mapLayers = { userMarker: null, targetMarker: null, polyline: null };
+// Vrstvy mapy
+let overlayKraje;
+let overlayReky;
 
-// === INICIALIZACE ===
-window.onload = () => {
+// Databáze cílů
+const targets = [
+  { name: "Praha", coords: [50.0755, 14.4378] },
+  { name: "Brno", coords: [49.1951, 16.6068] },
+  { name: "Ostrava", coords: [49.8209, 18.2625] },
+  { name: "Plzeň", coords: [49.7384, 13.3736] },
+  { name: "Sněžka", coords: [50.7360, 15.7396] },
+  { name: "Ještěd", coords: [50.7326, 15.0084] },
+  { name: "Machačovo jezero", coords: [50.5806, 14.6542] },
+  { name: "České Budějovice", coords: [48.9745, 14.4743] }
+];
+
+// Inicializace po načtení stránky
+document.addEventListener("DOMContentLoaded", () => {
   initMap();
-  setupCheckboxListeners();
-  loadLocations();
-};
+  nextRound();
+});
 
+// Inicializace Leaflet mapy
 function initMap() {
-  // Čistá slepá mapa bez popisků (Esri World Canvas)
+  // Podkladová slepá mapa (Světlá šedá base mapa)
   const baseSlepaMapa = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri', maxZoom: 16, minZoom: 7
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 16,
+    minZoom: 7
   });
 
   // Doplňkové vrstvy
   overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.fr/openriverindex/{z}/{x}/{y}.png', {
-    maxZoom: 19, opacity: 0.7
+    maxZoom: 19,
+    opacity: 0.7
   });
 
   overlayKraje = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri', maxZoom: 16, opacity: 0.8
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 16,
+    opacity: 0.8
   });
 
-  map = L.map('map', { zoomControl: true, doubleClickZoom: false, layers: [baseSlepaMapa] })
-    .setView(CONFIG.mapCenter, CONFIG.defaultZoom);
+  // Vytvoření mapy
+  map = L.map('map', {
+    zoomControl: true,
+    doubleClickZoom: false,
+    layers: [baseSlepaMapa]
+  }).setView(CONFIG.mapCenter, CONFIG.defaultZoom);
 
+  // Objekt pro ovládání vrstev pod ikonkou
+  const overlayMaps = {
+    "Hranice a popisky": overlayKraje,
+    "Vodní toky": overlayReky
+  };
+
+  // Přidání ovládacího prvku vrstev v rohu mapy
+  L.control.layers(null, overlayMaps, { collapsed: true }).addTo(map);
+
+  // Posluchač kliknutí na mapu
   map.on('click', handleMapClick);
 }
 
-// Přepínání vrstev přes checkboxy v hlavičce
-function setupCheckboxListeners() {
-  const checkKraje = document.getElementById('check-kraje');
-  const checkReky = document.getElementById('check-reky');
-
-  checkKraje.addEventListener('change', (e) => {
-    if (e.target.checked) {
-      map.addLayer(overlayKraje);
-    } else {
-      map.removeLayer(overlayKraje);
-    }
-  });
-
-  checkReky.addEventListener('change', (e) => {
-    if (e.target.checked) {
-      map.addLayer(overlayReky);
-    } else {
-      map.removeLayer(overlayReky);
-    }
-  });
-}
-
-// === NAČÍTÁNÍ DAT ===
-function loadLocations() {
-  fetch('zajimavosti.json?v=' + Date.now())
-    .then(res => {
-      if (!res.ok) throw new Error('Nelze načíst soubor JSON');
-      return res.json();
-    })
-    .then(data => {
-      state.locations = data.sort(() => 0.5 - Math.random());
-      state.locations.length > 0 ? startGame() : updateTargetText('Soubor JSON je prázdný!');
-    })
-    .catch(err => {
-      console.error(err);
-      updateTargetText('Chyba při načítání dat!');
-    });
-}
-
-// === HERNÍ SMYČKA ===
-function startGame() {
-  state.currentIndex = 0;
-  state.score = 0;
-  updateScoreUI();
-  setupRound();
-}
-
-function setupRound() {
-  state.isAnswered = false;
-  clearMapLayers();
-  
-  const currentTarget = state.locations[state.currentIndex];
-  updateTargetText(currentTarget.name);
-
-  startTimer();
-}
-
-function handleMapClick(e) {
-  if (state.isAnswered || state.locations.length === 0) return;
-  
-  state.isAnswered = true;
-  stopTimer();
-
-  const target = state.locations[state.currentIndex];
-  const userLatLng = L.latLng(e.latlng.lat, e.latlng.lng);
-  const targetLatLng = L.latLng(target.lat, target.lon);
-  
-  const distanceKm = Math.round(userLatLng.distanceTo(targetLatLng) / 1000);
-  const isSuccess = distanceKm <= CONFIG.maxDistanceKm;
-
-  renderResultOnMap(userLatLng, targetLatLng, isSuccess);
-
-  if (isSuccess) {
-    state.score++;
-    updateScoreUI();
-  }
-
-  showModal(
-    isSuccess ? 'Skvělý tip!' : 'Mimo toleranci',
-    `Chyba: <strong>${distanceKm} km</strong>.<br>Tolerance pro zisk bodu je ${CONFIG.maxDistanceKm} km.`
-  );
-}
-
-function handleTimeout() {
-  if (state.isAnswered) return;
-  state.isAnswered = true;
-
-  const target = state.locations[state.currentIndex];
-  
-  mapLayers.targetMarker = L.circleMarker([target.lat, target.lon], {
-    radius: 9, fillColor: '#dc3545', color: '#ffffff', weight: 2, fillOpacity: 1
-  }).addTo(map);
-
-  showModal('Čas vypršel!', `Správná poloha byla zobrazena na mapě.`);
-}
-
+// Spuštění nového kola
 function nextRound() {
   hideModal();
-  state.currentIndex++;
 
-  if (state.currentIndex < state.locations.length) {
-    setupRound();
-  } else {
-    alert(`Konec hry! Tvoje celkové skóre je ${state.score} z ${state.locations.length} bodů.`);
-    startGame();
+  // Odstranění předchozího markeru
+  if (activeMarker) {
+    map.removeLayer(activeMarker);
+    activeMarker = null;
   }
+
+  // Výběr náhodného cíle
+  const randomIndex = Math.floor(Math.random() * targets.length);
+  currentTarget = targets[randomIndex];
+  document.getElementById("target-name").textContent = currentTarget.name;
+
+  // Reset a spuštění časovače
+  resetTimer();
 }
 
-// === ČASOVAČ ===
-function startTimer() {
-  state.timer = CONFIG.timeLimit;
-  updateTimerUI();
-  stopTimer();
-  
-  state.timerInterval = setInterval(() => {
-    state.timer--;
-    updateTimerUI();
-    if (state.timer <= 0) {
-      stopTimer();
-      handleTimeout();
+// Reakce na kliknutí do mapy
+function handleMapClick(e) {
+  if (!currentTarget || timeLeft <= 0) return;
+
+  clearInterval(timer);
+
+  const clickedCoords = [e.latlng.lat, e.latlng.lng];
+  const distance = calculateDistance(clickedCoords, currentTarget.coords);
+
+  // Zobrazení správného místa na mapě
+  activeMarker = L.marker(currentTarget.coords).addTo(map);
+
+  let title = "";
+  let text = "";
+
+  if (distance <= CONFIG.toleranceKm) {
+    score += 10;
+    document.getElementById("score").textContent = score;
+    title = "Výborně!";
+    text = `Vedle o ${Math.round(distance)} km. Získáváš 10 bodů.`;
+  } else {
+    title = "Vedle!";
+    text = `Cíl bol vzdálený ${Math.round(distance)} km od tvého tipu.`;
+  }
+
+  showModal(title, text);
+}
+
+// Časovač
+function resetTimer() {
+  clearInterval(timer);
+  timeLeft = CONFIG.roundTime;
+  document.getElementById("timer").textContent = timeLeft;
+
+  timer = setInterval(() => {
+    timeLeft--;
+    document.getElementById("timer").textContent = timeLeft;
+
+    if (timeLeft <= 0) {
+      clearInterval(timer);
+      showModal("Čas vypršel!", `Správné místo bylo: ${currentTarget.name}`);
+      activeMarker = L.marker(currentTarget.coords).addTo(map);
     }
   }, 1000);
 }
 
-function stopTimer() {
-  if (state.timerInterval) clearInterval(state.timerInterval);
+// Výpočet vzdálenosti v km (Haversine formule)
+function calculateDistance(coords1, coords2) {
+  const R = 6371; // Poloměr Země v km
+  const dLat = (coords2[0] - coords1[0]) * Math.PI / 180;
+  const dLon = (coords2[1] - coords1[1]) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(coords1[0] * Math.PI / 180) * Math.cos(coords2[0] * Math.PI / 180) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 }
 
-// === PRÁCE S MAPOVÝMI PRVKY ===
-function renderResultOnMap(userLatLng, targetLatLng, isSuccess) {
-  const markerColor = isSuccess ? '#198754' : '#dc3545';
-
-  mapLayers.userMarker = L.circleMarker(userLatLng, {
-    radius: 9, fillColor: markerColor, color: '#ffffff', weight: 2, fillOpacity: 0.9
-  }).addTo(map);
-
-  mapLayers.targetMarker = L.circleMarker(targetLatLng, {
-    radius: 7, fillColor: '#212529', color: '#ffffff', weight: 2, fillOpacity: 1
-  }).addTo(map);
-
-  mapLayers.polyline = L.polyline([userLatLng, targetLatLng], {
-    color: markerColor, weight: 4, dashArray: '6, 8'
-  }).addTo(map);
-}
-
-function clearMapLayers() {
-  Object.keys(mapLayers).forEach(key => {
-    if (mapLayers[key]) {
-      map.removeLayer(mapLayers[key]);
-      mapLayers[key] = null;
-    }
-  });
-}
-
-// === POMOCNÉ UI FUNKCE ===
-function updateScoreUI() { document.getElementById('score').innerText = state.score; }
-function updateTimerUI() { document.getElementById('timer').innerText = state.timer; }
-function updateTargetText(text) { document.getElementById('target-name').innerText = text; }
-
+// Zobrazení a skrytí modálu
 function showModal(title, text) {
-  setTimeout(() => {
-    document.getElementById('modal-title').innerText = title;
-    document.getElementById('modal-text').innerHTML = text;
-    document.getElementById('overlay').style.display = 'flex';
-  }, 400);
-}
-
-function hideModal() {
-  document.getElementById('overlay').style.display = 'none';
-}
+  document.getElementById("modal-title").textContent = title;
+  document.getElementById("modal-text").textContent = text;
+  document.getElementById("overlay").style.display = "flex";
