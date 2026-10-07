@@ -13,35 +13,9 @@
 <body class="d-flex flex-column vh-100 overflow-hidden bg-light">
 
   <!-- Navigace -->
-  <header class="navbar navbar-dark bg-dark px-3 shadow-sm d-flex justify-content-between align-items-center">
+  <header class="navbar navbar-dark bg-dark px-3 shadow-sm">
     <span class="navbar-brand mb-0 h1 fs-4 fw-bold">Slepá mapa ČR</span>
     
-    <!-- Volba vrstev (Rozbalovací nabídka s checkboxy) -->
-    <div class="dropdown">
-      <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="mapLayersDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-        🗺️ Vrstvy mapy
-      </button>
-      <ul class="dropdown-menu dropdown-menu-end p-2 shadow" aria-labelledby="mapLayersDropdown">
-        <li>
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="check-kraje">
-            <label class="form-check-label text-dark fw-medium" for="check-kraje">
-              Hranice a popisky
-            </label>
-          </div>
-        </li>
-        <li>
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="check-reky">
-            <label class="form-check-label text-dark fw-medium" for="check-reky">
-              Vodní toky
-            </label>
-          </div>
-        </li>
-      </ul>
-    </div>
-
-    <!-- Skóre a Čas -->
     <div class="d-flex gap-2">
       <div class="badge bg-secondary fs-6 px-3 py-2">Skóre: <span id="score" class="text-warning">0</span></div>
       <div class="badge bg-secondary fs-6 px-3 py-2">Čas: <span id="timer" class="text-info">30</span>s</div>
@@ -67,7 +41,6 @@
   </div>
 
   <!-- Skripty -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
 </body>
