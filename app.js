@@ -19,43 +19,65 @@ const state = {
   isAnswered: false
 };
 
-// Mapové objekty
+// Mapové objekty a vrstvy
 let map = null;
+let overlayKraje = null;
+let overlayReky = null;
 const mapLayers = { userMarker: null, targetMarker: null, polyline: null };
 
 // === INICIALIZACE ===
 window.onload = () => {
   initMap();
+  setupCheckboxListeners();
   loadLocations();
 };
 
 function initMap() {
+  // Čistá slepá mapa bez popisků (Esri World Canvas)
   const baseSlepaMapa = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri', maxZoom: 16, minZoom: 7
   });
 
-  const overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.fr/openriverindex/{z}/{x}/{y}.png', {
+  // Doplňkové vrstvy
+  overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.fr/openriverindex/{z}/{x}/{y}.png', {
     maxZoom: 19, opacity: 0.7
   });
 
-  const overlayKraje = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+  overlayKraje = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri', maxZoom: 16, opacity: 0.8
   });
 
   map = L.map('map', { zoomControl: true, doubleClickZoom: false, layers: [baseSlepaMapa] })
     .setView(CONFIG.mapCenter, CONFIG.defaultZoom);
 
-  L.control.layers(null, {
-    "Hranice a popisky": overlayKraje,
-    "Vodní toky": overlayReky
-  }, { position: 'topright' }).addTo(map);
-
   map.on('click', handleMapClick);
+}
+
+// Přepínání vrstev přes checkboxy v hlavičce
+function setupCheckboxListeners() {
+  const checkKraje = document.getElementById('check-kraje');
+  const checkReky = document.getElementById('check-reky');
+
+  checkKraje.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      map.addLayer(overlayKraje);
+    } else {
+      map.removeLayer(overlayKraje);
+    }
+  });
+
+  checkReky.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      map.addLayer(overlayReky);
+    } else {
+      map.removeLayer(overlayReky);
+    }
+  });
 }
 
 // === NAČÍTÁNÍ DAT ===
 function loadLocations() {
-  fetch('zajimavosti.json')
+  fetch('zajimavosti.json?v=' + Date.now())
     .then(res => {
       if (!res.ok) throw new Error('Nelze načíst soubor JSON');
       return res.json();
