@@ -15,19 +15,22 @@
   <!-- Navigace -->
   <header class="navbar navbar-dark bg-dark px-3 shadow-sm">
     <span class="navbar-brand mb-0 h1 fs-4 fw-bold">Slepá mapa ČR</span>
-    <!-- Výběr kategorie JSON -->
-<div class="ms-auto d-flex align-items-center me-3">
-  <label for="json-select" class="text-white me-2 fw-medium">Kategorie:</label>
-  <select id="json-select" class="form-select form-select-sm" onchange="loadSelectedJson()">
-    <option value="mesta.json">Města</option>
-    <option value="hory.json">Hory a vrcholy</option>
-    <option value="vodstvo.json">Vodní plochy</option>
-  </select>
-</div>
     
-    <div class="d-flex gap-2">
+    <!-- Výběr kategorie JSON -->
+    <div class="ms-auto d-flex align-items-center me-3">
+      <label for="json-select" class="text-white me-2 fw-medium">Kategorie:</label>
+      <select id="json-select" class="form-select form-select-sm">
+        <option value="mesta.json">Města</option>
+        <option value="hory.json">Hory a vrcholy</option>
+        <option value="vodstvo.json">Vodní plochy</option>
+      </select>
+    </div>
+    
+    <div class="d-flex gap-2 align-items-center">
       <div class="badge bg-secondary fs-6 px-3 py-2">Skóre: <span id="score" class="text-warning">0</span></div>
       <div class="badge bg-secondary fs-6 px-3 py-2">Čas: <span id="timer" class="text-info">30</span>s</div>
+      <!-- Tlačítko Další v liště -->
+      <button id="next-header-btn" class="btn btn-outline-light btn-sm fw-bold ms-1">Další ➔</button>
     </div>
   </header>
 
@@ -45,7 +48,7 @@
     <div class="card shadow-lg p-4 text-center border-0 modal-card">
       <h2 id="modal-title" class="h3 fw-bold mb-3 text-dark">Vyhodnocení</h2>
       <p id="modal-text" class="fs-5 text-muted mb-4"></p>
-      <button class="btn btn-success btn-lg fw-bold py-2 px-4 shadow-sm" onclick="nextRound()">Další otázka</button>
+      <button id="next-btn" class="btn btn-success btn-lg fw-bold py-2 px-4 shadow-sm">Další otázka</button>
     </div>
   </div>
 
