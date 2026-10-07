@@ -2,171 +2,229 @@
 <html lang="cs">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Slepá mapa ČR - Kvíz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Slepá mapa ČR – Geografické extrémy</title>
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>
-    body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #fff; text-align: center; }
-    #header { padding: 12px; background: #1e293b; display: flex; justify-content: space-between; align-items: center; }
-    #map { height: calc(100vh - 120px); width: 100vw; background: #020617; }
-    #footer { padding: 10px; background: #1e293b; display: flex; justify-content: center; gap: 15px; align-items: center; }
-    
-    .btn { background: #2563eb; color: white; border: none; padding: 10px 20px; font-size: 1rem; border-radius: 6px; cursor: pointer; font-weight: bold; }
-    .btn:disabled { background: #64748b; cursor: not-allowed; }
-    .btn-success { background: #16a34a; }
-    
-    #timer { font-size: 1.3rem; font-weight: bold; color: #f59e0b; width: 50px; }
-    .black-dot { background-color: #000; border: 2px solid #fff; border-radius: 50%; }
-  </style>
+  <!-- Vlastní CSS styly -->
+  <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="d-flex flex-column vh-100 overflow-hidden bg-light">
 
-  <div id="header">
-    <div style="font-size: 1.2rem;">Hledáme: <strong id="target-name" style="color: #38bdf8;">Načítám...</strong></div>
-    <div id="timer">30s</div>
-    <div>Skóre: <span id="score">0</span></div>
+  <!-- Horní lišta (Bootstrap Navbar) -->
+  <header class="navbar navbar-dark bg-dark px-3 shadow-sm">
+    <span class="navbar-brand mb-0 h1 fs-4 fw-bold">Slepá mapa ČR</span>
+    <div class="d-flex gap-2">
+      <div class="badge bg-secondary fs-6 px-3 py-2">Skóre: <span id="score" class="text-warning">0</span></div>
+      <div class="badge bg-secondary fs-6 px-3 py-2">Čas: <span id="timer" class="text-info">30</span>s</div>
+    </div>
+  </header>
+
+  <!-- Poutač s hledaným cílem -->
+  <div id="target-container" class="bg-secondary text-white text-center py-2 px-3 shadow-sm">
+    <span class="fs-5 fw-medium">Najdi na mapě: </span>
+    <span id="target-name" class="fs-4 fw-bold text-warning d-inline-block ms-1">Načítám data...</span>
   </div>
 
-  <div id="map"></div>
+  <!-- Container s mapou -->
+  <div id="map" class="flex-grow-1"></div>
 
-  <div id="footer">
-    <button id="done-btn" class="btn btn-success" onclick="confirmGuess()" disabled>HOTOVO</button>
-    <button id="next-btn" class="btn" onclick="nextQuestion()" disabled>Další místo ➔</button>
+  <!-- Vyskakovací okno po vyhodnocení (Bootstrap Modal simulace / Overlay) -->
+  <div id="overlay" class="position-fixed top-0 start-0 w-100 h-100 justify-content-center align-items-center">
+    <div class="card shadow-lg p-4 text-center border-0 modal-card">
+      <h2 id="modal-title" class="h3 fw-bold mb-3 text-dark">Vyhodnocení</h2>
+      <p id="modal-text" class="fs-5 text-muted mb-4"></p>
+      <button class="btn btn-success btn-lg fw-bold py-2 px-4 shadow-sm" onclick="nextRound()">Další otázka</button>
+    </div>
   </div>
 
+  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Herní skript -->
   <script>
-    const TOLERANCE_KM = 50;
-    
-    let LOCATIONS = []; // Místa se načtou dynamicky z JSONu
-    let currentTarget = null;
+    // --- KONFIGURACE A PROMĚNNÉ ---
+    const MAX_DISTANCE_KM = 30; // Tolerance vzdálenosti
+    const TIME_LIMIT = 30;
+
+    let locations = [];
+    let currentLocationIndex = 0;
     let score = 0;
-    let timeLeft = 30;
+    let timer = TIME_LIMIT;
     let timerInterval = null;
-    let isLocked = false;
-    let lastClickPos = null;
+    let map = null;
+    let userMarker = null;
+    let targetMarker = null;
+    let polyline = null;
+    let isAnswered = false;
 
-    let userCircle = null;
-    let targetDot = null;
+    // --- INICIALIZACE MAPY ---
+    function initMap() {
+      map = L.map('map', {
+        zoomControl: true,
+        doubleClickZoom: false
+      }).setView([49.8175, 15.4730], 8);
 
-    // 1. Inicializace mapy
-    const map = L.map('map', {
-      zoomControl: false, dragging: false, touchZoom: false, doubleClickZoom: false, scrollWheelZoom: false
-    }).setView([49.8175, 15.4730], 7.5);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+        maxZoom: 19,
+        minZoom: 7
+      }).addTo(map);
 
-    // 2. Načtení obrysu ČR (GeoJSON)
-    fetch('https://raw.githubusercontent.com/mledoze/countries/master/data/cze.geo.json')
-      .then(res => res.json())
-      .then(data => {
-        L.geoJSON(data, {
-          style: { color: '#94a3b8', weight: 2, fillColor: '#1e293b', fillOpacity: 0.9 }
-        }).addTo(map);
-      });
+      map.on('click', onMapClick);
+    }
 
-    // 3. Načtení herních míst ze souboru locations.json
-    fetch('locations.json')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error("Soubor locations.json se nepodařilo načíst.");
-        }
-        return response.json();
-      })
-      .then(data => {
-        LOCATIONS = data;
-        nextQuestion(); // Odstartuje hru až po úspěšném načtení dat
-      })
-      .catch(error => {
-        console.error("Chyba při načítání lokací:", error);
-        document.getElementById('target-name').innerText = "Chyba načítání dat";
-      });
+    // --- NAČTENÍ DATA Z JSON SOUBORU ---
+    function loadData() {
+      fetch('zajimavosti.json')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Nelze načíst soubor zajimavosti.json');
+          }
+          return response.json();
+        })
+        .then(data => {
+          locations = data.sort(() => 0.5 - Math.random());
+          if (locations.length > 0) {
+            startGame();
+          } else {
+            document.getElementById('target-name').innerText = 'Soubor JSON je prázdný!';
+          }
+        })
+        .catch(error => {
+          console.error(error);
+          document.getElementById('target-name').innerText = 'Chyba při načítání dat!';
+        });
+    }
 
-    // 4. Logika výběru otázky
-    function nextQuestion() {
-      if (LOCATIONS.length === 0) return;
+    // --- HERNÍ LOGIKA ---
+    function startGame() {
+      currentLocationIndex = 0;
+      score = 0;
+      document.getElementById('score').innerText = score;
+      setupRound();
+    }
 
-      if (userCircle) map.removeLayer(userCircle);
-      if (targetDot) map.removeLayer(targetDot);
+    function setupRound() {
+      isAnswered = false;
+      clearMapLayers();
       
-      isLocked = false;
-      lastClickPos = null;
-      document.getElementById('done-btn').disabled = true;
-      document.getElementById('next-btn').disabled = true;
-
-      const randomIndex = Math.floor(Math.random() * LOCATIONS.length);
-      currentTarget = LOCATIONS[randomIndex];
+      const currentTarget = locations[currentLocationIndex];
       document.getElementById('target-name').innerText = currentTarget.name;
 
-      // Start odpočtu
+      timer = TIME_LIMIT;
+      document.getElementById('timer').innerText = timer;
       clearInterval(timerInterval);
-      timeLeft = 30;
-      document.getElementById('timer').innerText = `${timeLeft}s`;
-      
       timerInterval = setInterval(() => {
-        timeLeft--;
-        document.getElementById('timer').innerText = `${timeLeft}s`;
-        if (timeLeft <= 0) {
+        timer--;
+        document.getElementById('timer').innerText = timer;
+        if (timer <= 0) {
           clearInterval(timerInterval);
-          confirmGuess();
+          handleTimeout();
         }
       }, 1000);
     }
 
-    function getDistanceKm(lat1, lon1, lat2, lon2) {
-      const R = 6371;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    }
-
-    // Dotyk na mapu
-    map.on('click', function(e) {
-      if (isLocked) return;
-
-      lastClickPos = e.latlng;
-      document.getElementById('done-btn').disabled = false;
-
-      if (userCircle) map.removeLayer(userCircle);
-
-      userCircle = L.circle([lastClickPos.lat, lastClickPos.lng], {
-        radius: TOLERANCE_KM * 1000,
-        color: '#f97316',
-        fillColor: '#f97316',
-        fillOpacity: 0.4,
-        weight: 3
-      }).addTo(map);
-    });
-
-    // Potvrzení a vyhodnocení
-    function confirmGuess() {
-      if (isLocked) return;
-      isLocked = true;
+    function onMapClick(e) {
+      if (isAnswered || locations.length === 0) return;
+      isAnswered = true;
       clearInterval(timerInterval);
-      document.getElementById('done-btn').disabled = true;
-      document.getElementById('next-btn').disabled = false;
 
-      if (!lastClickPos) {
-        alert("Nevložil(a) jsi žádný tip!");
-        return;
-      }
+      const userLat = e.latlng.lat;
+      const userLng = e.latlng.lng;
+      const target = locations[currentLocationIndex];
 
-      const dist = getDistanceKm(lastClickPos.lat, lastClickPos.lng, currentTarget.lat, currentTarget.lon);
-      const isHit = dist <= TOLERANCE_KM;
+      const targetLatLng = L.latLng(target.lat, target.lon);
+      const userLatLng = L.latLng(userLat, userLng);
+      const distanceMeters = userLatLng.distanceTo(targetLatLng);
+      const distanceKm = Math.round(distanceMeters / 1000);
 
-      if (isHit) {
+      const isSuccess = distanceKm <= MAX_DISTANCE_KM;
+      const markerColor = isSuccess ? '#198754' : '#dc3545';
+
+      userMarker = L.circleMarker([userLat, userLng], {
+        radius: 9,
+        fillColor: markerColor,
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 0.9
+      }).addTo(map);
+
+      targetMarker = L.circleMarker([target.lat, target.lon], {
+        radius: 7,
+        fillColor: '#212529',
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 1
+      }).addTo(map);
+
+      polyline = L.polyline([[userLat, userLng], [target.lat, target.lon]], {
+        color: markerColor,
+        weight: 4,
+        dashArray: '6, 8'
+      }).addTo(map);
+
+      if (isSuccess) {
         score++;
         document.getElementById('score').innerText = score;
       }
 
-      targetDot = L.circleMarker([currentTarget.lat, currentTarget.lon], {
-        className: 'black-dot', radius: 8, color: '#fff', weight: 2, fillColor: '#000', fillOpacity: 1
+      showModal(
+        isSuccess ? 'Skvělý tip!' : 'Mimo toleranci',
+        `Chyba: <strong>${distanceKm} km</strong>.<br>Tolerance pro zisk bodu je ${MAX_DISTANCE_KM} km.`
+      );
+    }
+
+    function handleTimeout() {
+      if (isAnswered) return;
+      isAnswered = true;
+
+      const target = locations[currentLocationIndex];
+      
+      targetMarker = L.circleMarker([target.lat, target.lon], {
+        radius: 9,
+        fillColor: '#dc3545',
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 1
       }).addTo(map);
 
-      const finalColor = isHit ? '#22c55e' : '#ef4444';
-      userCircle.setStyle({ color: finalColor, fillColor: finalColor });
-      
-      targetDot.bindPopup(`<b>${currentTarget.name}</b><br>Odchylka: ${dist.toFixed(1)} km`).openPopup();
+      showModal('Čas vypršel!', `Správná poloha byla zobrazena na mapě.`);
     }
+
+    function showModal(title, text) {
+      setTimeout(() => {
+        document.getElementById('modal-title').innerText = title;
+        document.getElementById('modal-text').innerHTML = text;
+        document.getElementById('overlay').style.display = 'flex';
+      }, 500);
+    }
+
+    function nextRound() {
+      document.getElementById('overlay').style.display = 'none';
+      currentLocationIndex++;
+
+      if (currentLocationIndex < locations.length) {
+        setupRound();
+      } else {
+        alert(`Konec hry! Tvoje celkové skóre je ${score} z ${locations.length} bodů.`);
+        startGame();
+      }
+    }
+
+    function clearMapLayers() {
+      if (userMarker) map.removeLayer(userMarker);
+      if (targetMarker) map.removeLayer(targetMarker);
+      if (polyline) map.removeLayer(polyline);
+    }
+
+    window.onload = () => {
+      initMap();
+      loadData();
+    };
   </script>
 </body>
 </html>
