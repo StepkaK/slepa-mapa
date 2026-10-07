@@ -22,7 +22,7 @@
 <body>
 
   <div id="header">
-    <div style="font-size: 1.2rem;">Hledáme: <strong id="target-name" style="color: #38bdf8;">...</strong></div>
+    <div style="font-size: 1.2rem;">Hledáme: <strong id="target-name" style="color: #38bdf8;">Načítám...</strong></div>
     <div id="timer">30s</div>
     <div>Skóre: <span id="score">0</span></div>
   </div>
@@ -36,19 +36,9 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // --- SEM VKLÁDÁTE A UPRAVUJETE SVÁ MÍSTA ---
-    const LOCATIONS = [
-      { name: "Sněžka", lat: 50.7360, lon: 15.7396 },
-      { name: "Praděd", lat: 50.0831, lon: 17.2311 },
-      { name: "Karlštejn", lat: 49.9392, lon: 14.1882 },
-      { name: "Brno", lat: 49.1951, lon: 16.6068 },
-      { name: "Pravčická brána", lat: 50.8840, lon: 14.2817 },
-      { name: "Máchovo jezero", lat: 50.5815, lon: 14.6548 },
-      { name: "České Budějovice", lat: 48.9745, lon: 14.4743 },
-      { name: "Ještěd", lat: 50.7328, lon: 15.0028 }
-    ];
-
     const TOLERANCE_KM = 50;
+    
+    let LOCATIONS = []; // Místa se načtou dynamicky z JSONu
     let currentTarget = null;
     let score = 0;
     let timeLeft = 30;
@@ -59,12 +49,12 @@
     let userCircle = null;
     let targetDot = null;
 
-    // Inicializace mapy
+    // 1. Inicializace mapy
     const map = L.map('map', {
       zoomControl: false, dragging: false, touchZoom: false, doubleClickZoom: false, scrollWheelZoom: false
     }).setView([49.8175, 15.4730], 7.5);
 
-    // Načtení hranic ČR
+    // 2. Načtení obrysu ČR (GeoJSON)
     fetch('https://raw.githubusercontent.com/mledoze/countries/master/data/cze.geo.json')
       .then(res => res.json())
       .then(data => {
@@ -73,8 +63,27 @@
         }).addTo(map);
       });
 
+    // 3. Načtení herních míst ze souboru locations.json
+    fetch('locations.json')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Soubor locations.json se nepodařilo načíst.");
+        }
+        return response.json();
+      })
+      .then(data => {
+        LOCATIONS = data;
+        nextQuestion(); // Odstartuje hru až po úspěšném načtení dat
+      })
+      .catch(error => {
+        console.error("Chyba při načítání lokací:", error);
+        document.getElementById('target-name').innerText = "Chyba načítání dat";
+      });
+
+    // 4. Logika výběru otázky
     function nextQuestion() {
-      // Vyčistit předchozí prvky
+      if (LOCATIONS.length === 0) return;
+
       if (userCircle) map.removeLayer(userCircle);
       if (targetDot) map.removeLayer(targetDot);
       
@@ -83,12 +92,11 @@
       document.getElementById('done-btn').disabled = true;
       document.getElementById('next-btn').disabled = true;
 
-      // Náhodný výběr nového místa
       const randomIndex = Math.floor(Math.random() * LOCATIONS.length);
       currentTarget = LOCATIONS[randomIndex];
       document.getElementById('target-name').innerText = currentTarget.name;
 
-      // Spustit časovač
+      // Start odpočtu
       clearInterval(timerInterval);
       timeLeft = 30;
       document.getElementById('timer').innerText = `${timeLeft}s`;
@@ -111,6 +119,7 @@
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
+    // Dotyk na mapu
     map.on('click', function(e) {
       if (isLocked) return;
 
@@ -128,6 +137,7 @@
       }).addTo(map);
     });
 
+    // Potvrzení a vyhodnocení
     function confirmGuess() {
       if (isLocked) return;
       isLocked = true;
@@ -148,7 +158,6 @@
         document.getElementById('score').innerText = score;
       }
 
-      // Odhalení černé tečky a přebarvení
       targetDot = L.circleMarker([currentTarget.lat, currentTarget.lon], {
         className: 'black-dot', radius: 8, color: '#fff', weight: 2, fillColor: '#000', fillOpacity: 1
       }).addTo(map);
@@ -158,9 +167,6 @@
       
       targetDot.bindPopup(`<b>${currentTarget.name}</b><br>Odchylka: ${dist.toFixed(1)} km`).openPopup();
     }
-
-    // První načtení
-    nextQuestion();
   </script>
 </body>
 </html>
