@@ -32,7 +32,7 @@
   <!-- Container s mapou -->
   <div id="map" class="flex-grow-1"></div>
 
-  <!-- Vyskakovací okno po vyhodnocení (Bootstrap Modal simulace / Overlay) -->
+  <!-- Vyskakovací okno po vyhodnocení -->
   <div id="overlay" class="position-fixed top-0 start-0 w-100 h-100 justify-content-center align-items-center">
     <div class="card shadow-lg p-4 text-center border-0 modal-card">
       <h2 id="modal-title" class="h3 fw-bold mb-3 text-dark">Vyhodnocení</h2>
@@ -47,7 +47,7 @@
   <!-- Herní skript -->
   <script>
     // --- KONFIGURACE A PROMĚNNÉ ---
-    const MAX_DISTANCE_KM = 30; // Tolerance vzdálenosti
+    const MAX_DISTANCE_KM = 30; // Tolerance vzdálenosti v km
     const TIME_LIMIT = 30;
 
     let locations = [];
@@ -61,18 +61,45 @@
     let polyline = null;
     let isAnswered = false;
 
-    // --- INICIALIZACE MAPY ---
+    // Vrstvy mapy
+    let baseSlepaMapa, overlayKraje, overlayReky;
+
+    // --- INICIALIZACE MAPY S VRSTVAMI (BEZ API KLÍČE) ---
     function initMap() {
+      // 1. Čistá slepá mapa bez popisků (Esri World Canvas)
+      baseSlepaMapa = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri',
+        maxZoom: 16, 
+        minZoom: 7
+      });
+
+      // 2. Vodní toky a plochy
+      overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.fr/openriverindex/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        opacity: 0.7
+      });
+
+      // 3. Hranice a popisky měst (Esri World Canvas Reference)
+      overlayKraje = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri',
+        maxZoom: 16,
+        opacity: 0.8
+      });
+
+      // Inicializace mapy s výchozí slepou vrstvou
       map = L.map('map', {
         zoomControl: true,
-        doubleClickZoom: false
+        doubleClickZoom: false,
+        layers: [baseSlepaMapa]
       }).setView([49.8175, 15.4730], 8);
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-        maxZoom: 19,
-        minZoom: 7
-      }).addTo(map);
+      // Přepínač vrstev v pravém horním rohu
+      const overlayMaps = {
+        "Hranice a popisky": overlayKraje,
+        "Vodní toky": overlayReky
+      };
+
+      L.control.layers(null, overlayMaps, { position: 'topright' }).addTo(map);
 
       map.on('click', onMapClick);
     }
@@ -142,89 +169,4 @@
       const distanceMeters = userLatLng.distanceTo(targetLatLng);
       const distanceKm = Math.round(distanceMeters / 1000);
 
-      const isSuccess = distanceKm <= MAX_DISTANCE_KM;
-      const markerColor = isSuccess ? '#198754' : '#dc3545';
-
-      userMarker = L.circleMarker([userLat, userLng], {
-        radius: 9,
-        fillColor: markerColor,
-        color: '#ffffff',
-        weight: 2,
-        fillOpacity: 0.9
-      }).addTo(map);
-
-      targetMarker = L.circleMarker([target.lat, target.lon], {
-        radius: 7,
-        fillColor: '#212529',
-        color: '#ffffff',
-        weight: 2,
-        fillOpacity: 1
-      }).addTo(map);
-
-      polyline = L.polyline([[userLat, userLng], [target.lat, target.lon]], {
-        color: markerColor,
-        weight: 4,
-        dashArray: '6, 8'
-      }).addTo(map);
-
-      if (isSuccess) {
-        score++;
-        document.getElementById('score').innerText = score;
-      }
-
-      showModal(
-        isSuccess ? 'Skvělý tip!' : 'Mimo toleranci',
-        `Chyba: <strong>${distanceKm} km</strong>.<br>Tolerance pro zisk bodu je ${MAX_DISTANCE_KM} km.`
-      );
-    }
-
-    function handleTimeout() {
-      if (isAnswered) return;
-      isAnswered = true;
-
-      const target = locations[currentLocationIndex];
-      
-      targetMarker = L.circleMarker([target.lat, target.lon], {
-        radius: 9,
-        fillColor: '#dc3545',
-        color: '#ffffff',
-        weight: 2,
-        fillOpacity: 1
-      }).addTo(map);
-
-      showModal('Čas vypršel!', `Správná poloha byla zobrazena na mapě.`);
-    }
-
-    function showModal(title, text) {
-      setTimeout(() => {
-        document.getElementById('modal-title').innerText = title;
-        document.getElementById('modal-text').innerHTML = text;
-        document.getElementById('overlay').style.display = 'flex';
-      }, 500);
-    }
-
-    function nextRound() {
-      document.getElementById('overlay').style.display = 'none';
-      currentLocationIndex++;
-
-      if (currentLocationIndex < locations.length) {
-        setupRound();
-      } else {
-        alert(`Konec hry! Tvoje celkové skóre je ${score} z ${locations.length} bodů.`);
-        startGame();
-      }
-    }
-
-    function clearMapLayers() {
-      if (userMarker) map.removeLayer(userMarker);
-      if (targetMarker) map.removeLayer(targetMarker);
-      if (polyline) map.removeLayer(polyline);
-    }
-
-    window.onload = () => {
-      initMap();
-      loadData();
-    };
-  </script>
-</body>
-</html>
+      const is
