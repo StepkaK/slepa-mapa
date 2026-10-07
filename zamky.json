@@ -1,0 +1,12 @@
+[
+  { "name": "Karlštejn", "lat": 49.9392, "lon": 14.1882 },
+  { "name": "Hluboká nad Vltavou", "lat": 49.0518, "lon": 14.4410 },
+  { "name": "Lednice", "lat": 48.8015, "lon": 16.8030 },
+  { "name": "Křivoklát", "lat": 50.0378, "lon": 13.8722 },
+  { "name": "Trosky", "lat": 50.5162, "lon": 15.2307 },
+  { "name": "Bouzov", "lat": 49.7049, "lon": 16.8895 },
+  { "name": "Český Krumlov", "lat": 48.8101, "lon": 14.3142 },
+  { "name": "Loket", "lat": 50.1873, "lon": 12.7538 },
+  { "name": "Pernštejn", "lat": 49.4509, "lon": 16.3182 },
+  { "name": "Červená Lhota", "lat": 49.2464, "lon": 14.8851 }
+]
