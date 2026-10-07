@@ -1,0 +1,61 @@
+/* Základní nastavení pro celou obrazovku */
+html, body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  touch-action: manipulation; /* Optimalizace pro dotykové displeje */
+}
+
+/* Zajištění správné vrstvy mapy */
+#map {
+  z-index: 1;
+  width: 100%;
+}
+
+/* Modal Overlay (výsledkové okno) */
+#overlay {
+  background-color: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(3px); /* Jemný efekt rozostření pozadí */
+  display: none;
+  z-index: 2000;
+}
+
+.modal-card {
+  max-width: 420px;
+  width: 88%;
+  border-radius: 1rem;
+  animation: popIn 0.25s ease-out;
+}
+
+/* Animace pro vyskočení výsledkového okna */
+@keyframes popIn {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Responzivní úpravy pro mobilní telefony a malé displeje */
+@media (max-width: 576px) {
+  header .navbar-brand {
+    font-size: 1.1rem !important;
+  }
+  
+  #target-container span {
+    font-size: 1.1rem !important;
+  }
+
+  .badge {
+    font-size: 0.85rem !important;
+    padding: 0.4rem 0.6rem !important;
+  }
+
+  .modal-card {
+    padding: 1.5rem !important;
+  }
+}
