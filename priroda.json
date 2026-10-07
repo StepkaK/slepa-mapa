@@ -1,0 +1,12 @@
+[
+  { "name": "Sněžka", "lat": 50.7360, "lon": 15.7396 },
+  { "name": "Praděd", "lat": 50.0831, "lon": 17.2311 },
+  { "name": "Pravčická brána", "lat": 50.8840, "lon": 14.2817 },
+  { "name": "Máchovo jezero", "lat": 50.5815, "lon": 14.6548 },
+  { "name": "Ještěd", "lat": 50.7328, "lon": 15.0028 },
+  { "name": "Pustevny / Radhošť", "lat": 49.4894, "lon": 18.2628 },
+  { "name": "Propast Macocha", "lat": 49.3734, "lon": 16.7298 },
+  { "name": "Boubínský prales", "lat": 48.9767, "lon": 13.8189 },
+  { "name": "Vodní nádrž Lipno", "lat": 48.6538, "lon": 14.1868 },
+  { "name": "Pancíř (Šumava)", "lat": 49.1783, "lon": 13.2553 }
+]
