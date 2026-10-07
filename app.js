@@ -33,8 +33,12 @@ const targets = [
 
 // Inicializace po načtení stránky
 document.addEventListener("DOMContentLoaded", () => {
-  initMap();
-  nextRound();
+  try {
+    initMap();
+    nextRound();
+  } catch (err) {
+    console.error("Chyba při inicializaci:", err);
+  }
 });
 
 // Inicializace Leaflet mapy
@@ -46,24 +50,26 @@ function initMap() {
     minZoom: 7
   });
 
-  // 1. Vrstva: Samotné hranice (CartoDB Positron Boundaries)
+  // 1. Vrstva: Hranice a administrativní linie (CartoDB Positron Lines)
   overlayHranice = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_lines/{z}/{y}/{x}{r}.png', {
     attribution: '&copy; CartoDB',
+    subdomains: 'abcd',
     maxZoom: 16,
     opacity: 0.8
   });
 
-  // 2. Vrstva: Samotné popisky (Esri Canvas Light Reference)
+  // 2. Vrstva: Popisky a názvy (Esri Canvas Light Reference)
   overlayPopisky = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri',
     maxZoom: 16,
     opacity: 0.8
   });
 
-  // 3. Vrstva: Vodní toky
-  overlayReky = L.tileLayer('https://{s}.tile.openstreetmap.fr/openriverindex/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    opacity: 0.7
+  // 3. Vrstva: Vodní plochy a toky (Esri Hydro / Reference Overlay)
+  overlayReky = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 16,
+    opacity: 0.6
   });
 
   // Vytvoření mapy
@@ -76,7 +82,6 @@ function initMap() {
   // Objekt pro ovládání 3 samostatných vrstev v nabídce
   const overlayMaps = {
     "Hranice": overlayHranice,
-    "Vodní toky": overlayReky,
     "Popisky a názvy": overlayPopisky
   };
 
@@ -100,7 +105,11 @@ function nextRound() {
   // Výběr náhodného cíle
   const randomIndex = Math.floor(Math.random() * targets.length);
   currentTarget = targets[randomIndex];
-  document.getElementById("target-name").textContent = currentTarget.name;
+  
+  const targetElem = document.getElementById("target-name");
+  if (targetElem) {
+    targetElem.textContent = currentTarget.name;
+  }
 
   // Reset a spuštění časovače
   resetTimer();
@@ -123,7 +132,8 @@ function handleMapClick(e) {
 
   if (distance <= CONFIG.toleranceKm) {
     score += 10;
-    document.getElementById("score").textContent = score;
+    const scoreElem = document.getElementById("score");
+    if (scoreElem) scoreElem.textContent = score;
     title = "Výborně!";
     text = `Vedle o ${Math.round(distance)} km. Získáváš 10 bodů.`;
   } else {
@@ -138,11 +148,13 @@ function handleMapClick(e) {
 function resetTimer() {
   clearInterval(timer);
   timeLeft = CONFIG.roundTime;
-  document.getElementById("timer").textContent = timeLeft;
+  
+  const timerElem = document.getElementById("timer");
+  if (timerElem) timerElem.textContent = timeLeft;
 
   timer = setInterval(() => {
     timeLeft--;
-    document.getElementById("timer").textContent = timeLeft;
+    if (timerElem) timerElem.textContent = timeLeft;
 
     if (timeLeft <= 0) {
       clearInterval(timer);
@@ -167,11 +179,16 @@ function calculateDistance(coords1, coords2) {
 
 // Zobrazení a skrytí modálu
 function showModal(title, text) {
-  document.getElementById("modal-title").textContent = title;
-  document.getElementById("modal-text").textContent = text;
-  document.getElementById("overlay").style.display = "flex";
+  const titleElem = document.getElementById("modal-title");
+  const textElem = document.getElementById("modal-text");
+  const overlayElem = document.getElementById("overlay");
+
+  if (titleElem) titleElem.textContent = title;
+  if (textElem) textElem.textContent = text;
+  if (overlayElem) overlayElem.style.display = "flex";
 }
 
 function hideModal() {
-  document.getElementById("overlay").style.display = "none";
+  const overlayElem = document.getElementById("overlay");
+  if (overlayElem) overlayElem.style.display = "none";
 }
