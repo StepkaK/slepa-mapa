@@ -28,6 +28,16 @@ const CONFIG = {
     '?where=1%3D1' +
     '&outFields=*' +
     '&returnGeometry=true' +
+    '&f=geojson',
+
+  // Hranice státního území ČR.
+  // Data poskytuje ČÚZK – DATA250, vrstva 0.
+  countryBoundaryUrl:
+    'https://ags.cuzk.gov.cz/arcgis/rest/services/DATA250/MapServer/0/query' +
+    '?where=1%3D1' +
+    '&outFields=*' +
+    '&returnGeometry=true' +
+    '&outSR=4326' +
     '&f=geojson'
 };
 
@@ -46,7 +56,7 @@ const state = {
   // Byla již odpověď vyhodnocena?
   isAnswered: false,
 
-  // Pozice, kam hráč kliknul.
+  // Pozice tipu hráče.
   userLatLng: null,
 
   // Aktuálně vybraný JSON.
@@ -60,7 +70,10 @@ const state = {
 let map = null;
 
 const mapLayers = {
+  mask: null,
+  countryBorder: null,
   kraje: null,
+
   userMarker: null,
   targetMarker: null,
   polyline: null
@@ -73,7 +86,7 @@ const mapLayers = {
 window.addEventListener('load', init);
 
 /**
- * Inicializace aplikace.
+ * Inicializace celé aplikace.
  */
 function init() {
   initMap();
@@ -99,6 +112,15 @@ function initMap() {
     doubleClickZoom: false,
     minZoom: CONFIG.minZoom,
     maxZoom: CONFIG.maxZoom,
+
+    // Uživatel se nemůže posunout úplně mimo ČR.
+    maxBounds: [
+      [48.45, 12.05],
+      [51.10, 18.90]
+    ],
+
+    maxBoundsViscosity: 1.0,
+
     layers: [baseMapLayer]
   }).setView(
     CONFIG.mapCenter,
@@ -107,6 +129,8 @@ function initMap() {
 
   map.on('click', handleMapClick);
 
+  // Načteme geografické vrstvy.
+  loadCountryMask();
   loadKrajeLayer();
 }
 
@@ -176,70 +200,177 @@ function initEventListeners() {
 }
 
 // ============================================================
-// NAČÍTÁNÍ VYBRANÉHO JSON
+// MASKA ČR
 // ============================================================
 
 /**
- * Načte JSON vybraný v selectu.
+ * Načte hranici České republiky a vytvoří masku,
+ * která zakryje okolní státy.
  *
- * Po změně kategorie se aktuální hra restartuje
- * a použije se nový soubor.
+ * ČR zůstane průhledná, okolí bude bílé.
  */
-async function loadSelectedJson() {
-  const jsonSelect =
-    document.getElementById('json-select');
-
-  const selectedJson = jsonSelect
-    ? jsonSelect.value
-    : CONFIG.defaultLocationsUrl;
-
-  state.selectedJson = selectedJson;
-
-  stopTimer();
-
+async function loadCountryMask() {
   try {
-    updateTargetText('Načítám data...');
-
-    const response = await fetch(selectedJson);
+    const response =
+      await fetch(
+        CONFIG.countryBoundaryUrl
+      );
 
     if (!response.ok) {
       throw new Error(
-        `Nelze načíst soubor "${selectedJson}": ` +
+        `Chyba při načítání hranice ČR: ` +
         `HTTP ${response.status}`
       );
     }
 
-    const data = await response.json();
+    const geoJson =
+      await response.json();
 
-    if (!Array.isArray(data) || data.length === 0) {
-      state.locations = [];
-
-      updateTargetText(
-        'Vybraný JSON neobsahuje žádné lokace.'
-      );
-
-      updateScoreUI();
-      updateTimerUI();
-
-      return;
-    }
-
-    // Zachováváme přesné pořadí z JSON.
-    state.locations = data;
-
-    startGame();
+    createCountryMask(geoJson);
   } catch (error) {
     console.error(
-      'Chyba při načítání JSON:',
+      'Nepodařilo se načíst hranici ČR:',
       error
     );
+  }
+}
 
-    state.locations = [];
+/**
+ * Vytvoří vizuální masku kolem České republiky.
+ *
+ * Princip:
+ * - velký obdélník pokrývá celé okolí,
+ * - polygon ČR funguje jako "díra",
+ * - uvnitř ČR tak zůstane viditelný podklad.
+ *
+ * @param {Object} geoJson
+ */
+function createCountryMask(geoJson) {
+  if (
+    !geoJson ||
+    !geoJson.features ||
+    geoJson.features.length === 0
+  ) {
+    console.error(
+      'GeoJSON hranice ČR neobsahuje žádný prvek.'
+    );
 
-    updateTargetText(
-      'Chyba při načítání dat!'
+    return;
+  }
+
+  const countryGeometry =
+    geoJson.features[0].geometry;
+
+  if (!countryGeometry) {
+    console.error(
+      'GeoJSON hranice ČR nemá geometrii.'
+    );
+
+    return;
+  }
+
+  const outerRing = [
+    [55, 5],
+    [55, 25],
+    [45, 25],
+    [45, 5],
+    [55, 5]
+  ];
+
+  const maskCoordinates = [
+    outerRing
+  ];
+
+  /*
+   * GeoJSON Polygon:
+   *
+   * coordinates = [
+   *   [outer ring],
+   *   [hole 1],
+   *   [hole 2]
+   * ]
+   */
+  if (
+    countryGeometry.type === 'Polygon'
+  ) {
+    countryGeometry.coordinates.forEach(
+      (ring) => {
+        maskCoordinates.push(
+          ring.map(
+            ([lon, lat]) => [lat, lon]
+          )
+        );
+      }
     );
   }
+
+  /*
+   * GeoJSON MultiPolygon:
+   *
+   * coordinates = [
+   *   [
+   *     [ring 1],
+   *     [ring 2]
+   *   ],
+   *   ...
+   * ]
+   */
+  if (
+    countryGeometry.type === 'MultiPolygon'
+  ) {
+    countryGeometry.coordinates.forEach(
+      (polygon) => {
+        polygon.forEach(
+          (ring) => {
+            maskCoordinates.push(
+              ring.map(
+                ([lon, lat]) => [
+                  lat,
+                  lon
+                ]
+              )
+            );
+          }
+        );
+      }
+    );
+  }
+
+  // Vytvoření bílé masky.
+  mapLayers.mask =
+    L.polygon(
+      maskCoordinates,
+      {
+        stroke: false,
+        fillColor: '#ffffff',
+        fillOpacity: 0.88,
+        interactive: false
+      }
+    ).addTo(map);
+
+  /*
+   * Hranice ČR vykreslíme samostatně.
+   * Díky tomu je výraznější než maska.
+   */
+  mapLayers.countryBorder =
+    L.geoJSON(
+      geoJson,
+      {
+        style: {
+          color: '#343a40',
+          weight: 2.5,
+          opacity: 0.9,
+          fill: false,
+          interactive: false
+        }
+      }
+    ).addTo(map);
+
+  /*
+   * Maska musí být pod tipy hráče,
+   * ale hranice ČR mohou být nad maskou.
+   */
+  mapLayers.mask.bringToBack();
 }
 
 // ============================================================
@@ -252,7 +383,10 @@ async function loadSelectedJson() {
  */
 async function loadKrajeLayer() {
   try {
-    const response = await fetch(CONFIG.krajeUrl);
+    const response =
+      await fetch(
+        CONFIG.krajeUrl
+      );
 
     if (!response.ok) {
       throw new Error(
@@ -261,22 +395,24 @@ async function loadKrajeLayer() {
       );
     }
 
-    const geoJson = await response.json();
+    const geoJson =
+      await response.json();
 
-    mapLayers.kraje = L.geoJSON(
-      geoJson,
-      {
-        style: {
-          color: '#6c757d',
-          weight: 1.5,
-          opacity: 0.8,
-          fillColor: '#ffffff',
-          fillOpacity: 0.02
+    mapLayers.kraje =
+      L.geoJSON(
+        geoJson,
+        {
+          style: {
+            color: '#6c757d',
+            weight: 1.5,
+            opacity: 0.8,
+            fillColor: '#ffffff',
+            fillOpacity: 0.02
+          }
         }
-      }
-    );
+      );
 
-    // Hranice jsou po načtení viditelné.
+    // Kraje jsou po načtení viditelné.
     mapLayers.kraje.addTo(map);
 
     // Uživatel je může vypnout/zapnout.
@@ -298,6 +434,91 @@ async function loadKrajeLayer() {
 }
 
 // ============================================================
+// NAČÍTÁNÍ JSON
+// ============================================================
+
+/**
+ * Načte JSON vybraný v selectu.
+ *
+ * Po změně kategorie se aktuální hra restartuje.
+ */
+async function loadSelectedJson() {
+  const jsonSelect =
+    document.getElementById(
+      'json-select'
+    );
+
+  const selectedJson =
+    jsonSelect
+      ? jsonSelect.value
+      : CONFIG.defaultLocationsUrl;
+
+  state.selectedJson =
+    selectedJson;
+
+  stopTimer();
+
+  try {
+    updateTargetText(
+      'Načítám data...'
+    );
+
+    const response =
+      await fetch(
+        selectedJson
+      );
+
+    if (!response.ok) {
+      throw new Error(
+        `Nelze načíst soubor "${selectedJson}": ` +
+        `HTTP ${response.status}`
+      );
+    }
+
+    const data =
+      await response.json();
+
+    if (
+      !Array.isArray(data) ||
+      data.length === 0
+    ) {
+      state.locations = [];
+
+      updateTargetText(
+        'Vybraný JSON neobsahuje žádné lokace.'
+      );
+
+      updateScoreUI();
+      updateTimerUI();
+      setConfirmButtonState(false);
+
+      return;
+    }
+
+    // DŮLEŽITÉ:
+    // JSON se nijak nemíchá.
+    // Hra postupuje přesně podle pořadí
+    // položek v souboru.
+    state.locations = data;
+
+    startGame();
+  } catch (error) {
+    console.error(
+      'Chyba při načítání JSON:',
+      error
+    );
+
+    state.locations = [];
+
+    updateTargetText(
+      'Chyba při načítání dat!'
+    );
+
+    setConfirmButtonState(false);
+  }
+}
+
+// ============================================================
 // HERNÍ SMYČKA
 // ============================================================
 
@@ -309,7 +530,8 @@ function startGame() {
 
   state.currentIndex = 0;
   state.score = 0;
-  state.timer = CONFIG.timeLimit;
+  state.timer =
+    CONFIG.timeLimit;
   state.isAnswered = false;
   state.userLatLng = null;
 
@@ -326,6 +548,7 @@ function setupRound() {
   state.isAnswered = false;
   state.userLatLng = null;
 
+  // Odstraní tip z předchozího kola.
   clearRoundLayers();
 
   setConfirmButtonState(false);
@@ -352,8 +575,9 @@ function setupRound() {
  */
 function getCurrentTarget() {
   return (
-    state.locations[state.currentIndex] ??
-    null
+    state.locations[
+      state.currentIndex
+    ] ?? null
   );
 }
 
@@ -365,7 +589,7 @@ function getCurrentTarget() {
  * Uloží tip hráče po kliknutí do mapy.
  *
  * Kliknutí samo o sobě odpověď nevyhodnocuje.
- * Hráč musí následně stisknout tlačítko „Hotovo“.
+ * Hráč musí následně stisknout „Hotovo“.
  *
  * @param {Object} event
  */
@@ -377,7 +601,8 @@ function handleMapClick(event) {
     return;
   }
 
-  state.userLatLng = event.latlng;
+  state.userLatLng =
+    event.latlng;
 
   // Odstraníme předchozí tip.
   if (mapLayers.userMarker) {
@@ -388,7 +613,7 @@ function handleMapClick(event) {
     mapLayers.userMarker = null;
   }
 
-  // Zobrazíme aktuální tip hráče.
+  // Zobrazíme nový tip.
   mapLayers.userMarker =
     L.circleMarker(
       state.userLatLng,
@@ -444,21 +669,15 @@ function confirmAnswer() {
   const roundedDistanceKm =
     Math.round(distanceKm);
 
-  // ----------------------------------------------------------
-  // Kontrola správnosti
-  // ----------------------------------------------------------
-
+  // Kontrola správnosti.
   const isSuccess =
-    distanceKm <= CONFIG.toleranceKm;
+    distanceKm <=
+    CONFIG.toleranceKm;
 
   if (isSuccess) {
     state.score += 1;
     updateScoreUI();
   }
-
-  // ----------------------------------------------------------
-  // Vykreslení výsledku
-  // ----------------------------------------------------------
 
   renderResultOnMap(
     state.userLatLng,
@@ -468,36 +687,15 @@ function confirmAnswer() {
 
   setConfirmButtonState(false);
 
-  // ----------------------------------------------------------
-  // Výsledkové okno
-  // ----------------------------------------------------------
-
   showModal(
     isSuccess
       ? 'Skvělý tip!'
       : 'Mimo toleranci',
+
     `Chyba: <strong>${roundedDistanceKm} km</strong>.<br>` +
     `Tolerance pro zisk bodu je ` +
     `${CONFIG.toleranceKm} km.`
   );
-}
-
-/**
- * Nastaví stav tlačítka „Hotovo“.
- *
- * @param {boolean} enabled
- */
-function setConfirmButtonState(enabled) {
-  const confirmBtn =
-    document.getElementById(
-      'confirm-btn'
-    );
-
-  if (!confirmBtn) {
-    return;
-  }
-
-  confirmBtn.disabled = !enabled;
 }
 
 // ============================================================
@@ -579,8 +777,7 @@ function nextRound() {
 /**
  * Zpracování tlačítka „Další“ v horní liště.
  *
- * Pokud je odpověď právě rozpracovaná,
- * otázku jednoduše přeskočí.
+ * Otázku přeskočí bez přidělení bodu.
  */
 function handleHeaderNext() {
   if (
@@ -638,16 +835,19 @@ function startTimer() {
   updateTimerUI();
 
   state.timerInterval =
-    setInterval(() => {
-      state.timer -= 1;
+    setInterval(
+      () => {
+        state.timer -= 1;
 
-      updateTimerUI();
+        updateTimerUI();
 
-      if (state.timer <= 0) {
-        stopTimer();
-        handleTimeout();
-      }
-    }, 1000);
+        if (state.timer <= 0) {
+          stopTimer();
+          handleTimeout();
+        }
+      },
+      1000
+    );
 }
 
 /**
@@ -712,7 +912,7 @@ function renderResultOnMap(
       }
     ).addTo(map);
 
-  // Spojnice mezi tipem a skutečnou polohou.
+  // Spojnice.
   mapLayers.polyline =
     L.polyline(
       [
@@ -730,7 +930,7 @@ function renderResultOnMap(
 /**
  * Odstraní mapové prvky aktuálního kola.
  *
- * Hranice krajů se nemažou.
+ * Hranice krajů, hranice ČR a maska se nemažou.
  */
 function clearRoundLayers() {
   const roundLayerNames = [
@@ -746,7 +946,9 @@ function clearRoundLayers() {
 
       if (layer) {
         map.removeLayer(layer);
-        mapLayers[layerName] = null;
+
+        mapLayers[layerName] =
+          null;
       }
     }
   );
@@ -813,37 +1015,40 @@ function showModal(
   title,
   text
 ) {
-  setTimeout(() => {
-    const titleElement =
-      document.getElementById(
-        'modal-title'
-      );
+  setTimeout(
+    () => {
+      const titleElement =
+        document.getElementById(
+          'modal-title'
+        );
 
-    const textElement =
-      document.getElementById(
-        'modal-text'
-      );
+      const textElement =
+        document.getElementById(
+          'modal-text'
+        );
 
-    const overlayElement =
-      document.getElementById(
-        'overlay'
-      );
+      const overlayElement =
+        document.getElementById(
+          'overlay'
+        );
 
-    if (titleElement) {
-      titleElement.textContent =
-        title;
-    }
+      if (titleElement) {
+        titleElement.textContent =
+          title;
+      }
 
-    if (textElement) {
-      textElement.innerHTML =
-        text;
-    }
+      if (textElement) {
+        textElement.innerHTML =
+          text;
+      }
 
-    if (overlayElement) {
-      overlayElement.style.display =
-        'flex';
-    }
-  }, 400);
+      if (overlayElement) {
+        overlayElement.style.display =
+          'flex';
+      }
+    },
+    400
+  );
 }
 
 /**
