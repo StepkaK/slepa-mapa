@@ -5,6 +5,8 @@
 const CONFIG = {
   mapCenter: [49.8175, 15.4730],
   defaultZoom: 8,
+  minZoom: 7,
+  maxZoom: 10, // Omezení zoomu maximálně o 2 stupně
   roundTime: 30,
   toleranceKm: 30
 };
@@ -13,7 +15,7 @@ const CONFIG = {
 const state = {
   map: null,
   targets: [],
-  availableTargets: [],
+  currentIndex: 0, // Sledování pořadí podle JSONu
   currentTarget: null,
   score: 0,
   timer: null,
@@ -31,7 +33,7 @@ const state = {
   abortController: null
 };
 
-// Inicializace aplikace po načtení DOM
+// Inicializace aplikace
 document.addEventListener("DOMContentLoaded", () => {
   initMap();
   initEventListeners();
@@ -54,33 +56,37 @@ function initEventListeners() {
 }
 
 /**
- * Inicializace Leaflet mapy (Čisté Esri ArcGIS vrstvy bez API klíče)
+ * Inicializace Leaflet mapy
  */
 function initMap() {
-  // Základní slepá mapa
+  // 1. ZÁKLAD: Čistá světlá podkladová mapa bez hranic a popisků
   const baseSlepaMapa = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri',
-    maxZoom: 16,
-    minZoom: 7
+    maxZoom: CONFIG.maxZoom,
+    minZoom: CONFIG.minZoom
   });
 
-  // Hranice
+  // 2. VRSTVA: Samostatné hranice
   const overlayHranice = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri',
-    maxZoom: 16,
+    maxZoom: CONFIG.maxZoom,
+    minZoom: CONFIG.minZoom,
     opacity: 0.65
   });
 
-  // Popisky
+  // 3. VRSTVA: Samostatné popisky a názvy
   const overlayPopisky = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri',
-    maxZoom: 16,
+    maxZoom: CONFIG.maxZoom,
+    minZoom: CONFIG.minZoom,
     opacity: 0.85
   });
 
   state.map = L.map('map', {
     zoomControl: true,
     doubleClickZoom: false,
+    minZoom: CONFIG.minZoom,
+    maxZoom: CONFIG.maxZoom,
     layers: [baseSlepaMapa]
   }).setView(CONFIG.mapCenter, CONFIG.defaultZoom);
 
@@ -114,11 +120,11 @@ async function loadSelectedJson() {
     const data = await response.json();
     
     if (!Array.isArray(data) || data.length === 0) {
-      throw new Error("Načtený JSON neobsahuje platné pole cílů.");
+      throw new Error("Načtený JSON neobsahuje platná data.");
     }
 
     state.targets = data;
-    state.availableTargets = [...data];
+    state.currentIndex = 0; // Resetujeme index na začátek JSONu
     
     nextRound();
   } catch (err) {
@@ -131,7 +137,7 @@ async function loadSelectedJson() {
 }
 
 /**
- * Zahájení nového kola
+ * Zahájení nového kola – po sobě v pořadí JSON souboru
  */
 function nextRound() {
   hideModal();
@@ -141,16 +147,18 @@ function nextRound() {
   state.userLatLng = null;
   state.isAnswered = false;
 
-  // Deaktivace tlačítka Hotovo
   const confirmBtn = document.getElementById("confirm-btn");
   if (confirmBtn) confirmBtn.disabled = true;
 
-  if (state.availableTargets.length === 0) {
-    state.availableTargets = [...state.targets];
+  if (!state.targets || state.targets.length === 0) return;
+
+  // Postupné načítání podle indexu v JSONu
+  if (state.currentIndex >= state.targets.length) {
+    state.currentIndex = 0; // Při dosažení konce začneme od začátku
   }
 
-  const randomIndex = Math.floor(Math.random() * state.availableTargets.length);
-  state.currentTarget = state.availableTargets.splice(randomIndex, 1)[0];
+  state.currentTarget = state.targets[state.currentIndex];
+  state.currentIndex++; // Posun na další položku pro příští kolo
 
   const targetElem = document.getElementById("target-name");
   if (targetElem && state.currentTarget) {
@@ -168,27 +176,24 @@ function handleMapClick(e) {
 
   state.userLatLng = L.latLng(e.latlng.lat, e.latlng.lng);
 
-  // Pokud bod ještě neexistuje, vytvoříme ho
   if (!state.markers.userMarker) {
     state.markers.userMarker = L.circleMarker(state.userLatLng, {
       radius: 9,
-      fillColor: '#ff922b', // Oranžová barva pro nastavení tipu
+      fillColor: '#ff922b',
       color: '#ffffff',
       weight: 2,
       fillOpacity: 1
     }).addTo(state.map);
   } else {
-    // Jinak ho pouze posuneme na nové místo
     state.markers.userMarker.setLatLng(state.userLatLng);
   }
 
-  // Povolíme tlačítko Hotovo
   const confirmBtn = document.getElementById("confirm-btn");
   if (confirmBtn) confirmBtn.disabled = false;
 }
 
 /**
- * Vyhodnocení tipu po kliknutí na tlačítko "Hotovo"
+ * Vyhodnocení po kliknutí na "Hotovo"
  */
 function evaluateAnswer() {
   if (state.isAnswered || !state.userLatLng) return;
@@ -200,11 +205,11 @@ function evaluateAnswer() {
   const distanceKm = Math.round(state.userLatLng.distanceTo(targetLatLng) / 1000);
   const isSuccess = distanceKm <= CONFIG.toleranceKm;
 
-  // Změna barvy uživatelského bodu podle výsledku
-  const finalColor = isSuccess ? '#198754' : '#dc3545'; // Zelená vs Červená
+  // Změna barvy podle výsledku (Zelená = trefa, Červená = vedle)
+  const finalColor = isSuccess ? '#198754' : '#dc3545';
   state.markers.userMarker.setStyle({ fillColor: finalColor });
 
-  // Vykreslení přesného cíle (černá tečka)
+  // Správný cíl (černý bod)
   state.markers.targetMarker = L.circleMarker(targetLatLng, {
     radius: 7,
     fillColor: '#212529',
@@ -213,7 +218,7 @@ function evaluateAnswer() {
     fillOpacity: 1
   }).addTo(state.map);
 
-  // Čárkovaná čára propojující tip a cíl
+  // Spojnice mezi tipem a správným místem
   state.markers.polyline = L.polyline([state.userLatLng, targetLatLng], {
     color: finalColor,
     weight: 3,
