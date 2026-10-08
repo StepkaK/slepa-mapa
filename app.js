@@ -1,13 +1,18 @@
 /**
  * Slepá mapa ČR – Hlavní aplikační logika
  *
- * Mapové vrstvy:
- * 1. Výchozí vrstva – pouze obrys ČR
- * 2. Volitelná vrstva – hranice krajů ČR
- * 3. Volitelná vrstva – popisky Esri
-
- * Hranice jsou načítány jako GeoJSON přímo
- * z veřejných ArcGIS REST služeb.
+ * MAPOVÉ VRSTVY:
+ *
+ * 1. Výchozí:
+ *    pouze obrys ČR
+ *
+ * 2. Volitelná:
+ *    hranice krajů ČR
+ *
+ * 3. Volitelná:
+ *    popisky Esri pouze na území ČR
+ *
+ * Vše funguje bez API klíče.
  */
 
 
@@ -26,19 +31,20 @@ const CONFIG = {
 
 
 // ============================================================
-// URL MAPOVÝCH DAT
+// URL ARCGIS SLUŽEB
 // ============================================================
 
-// Veřejná ArcGIS vrstva států
+// Esri World Countries
+// Použijeme pouze Českou republiku.
 const URL_HRANICE_CR =
   'https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/World_Countries/FeatureServer/0/query' +
-  '?where=ISO3%3D%27CZE%27' +
+  '?where=ISO_3DIGIT%3D%27CZE%27' +
   '&outFields=*' +
   '&returnGeometry=true' +
   '&f=geojson';
 
 
-// Veřejná česká vrstva krajů
+// Česká vrstva krajů
 const URL_HRANICE_KRAJU =
   'https://services-eu1.arcgis.com/M6GrekYaMaiKldQY/arcgis/rest/services/hranice_kraj%C5%AF_%C4%8CR/FeatureServer/0/query' +
   '?where=1%3D1' +
@@ -90,7 +96,9 @@ const state = {
 
     hraniceKraju: null,
 
-    popisky: null
+    popisky: null,
+
+    maskaPopisku: null
   },
 
 
@@ -180,13 +188,12 @@ function initEventListeners() {
 function initMap() {
 
   // ==========================================================
-  // VÝCHOZÍ MAPA
+  // VYTVOŘENÍ MAPY
   // ==========================================================
 
   state.map = L.map(
     'map',
     {
-
       zoomControl: true,
 
       doubleClickZoom: false,
@@ -204,11 +211,6 @@ function initMap() {
   // ==========================================================
   // 1. HRANICE ČR
   // ==========================================================
-
-  //
-  // Vytvoříme prázdnou GeoJSON vrstvu.
-  // Ta bude po načtení obsahovat pouze ČR.
-  //
 
   state.mapLayers.hraniceCR =
     L.geoJSON(
@@ -233,22 +235,18 @@ function initMap() {
     );
 
 
-  // Načteme hranici ČR
+  // Načtení hranice ČR
   loadBoundaryLayer(
     URL_HRANICE_CR,
     state.mapLayers.hraniceCR,
-    "hranice České republiky"
+    "hranice České republiky",
+    true
   );
 
 
   // ==========================================================
   // 2. HRANICE KRAJŮ
   // ==========================================================
-
-  //
-  // Tato vrstva se při spuštění NEZOBRAZÍ.
-  // Uživatel ji zapne v přepínači vrstev.
-  //
 
   state.mapLayers.hraniceKraju =
     L.geoJSON(
@@ -271,22 +269,18 @@ function initMap() {
     );
 
 
-  // Načtení hranic krajů
+  // Načtení krajů
   loadBoundaryLayer(
     URL_HRANICE_KRAJU,
     state.mapLayers.hraniceKraju,
-    "hranice krajů"
+    "hranice krajů",
+    false
   );
 
 
   // ==========================================================
-  // 3. POPISKY
+  // 3. POPISKY ESRI
   // ==========================================================
-
-  //
-  // Tvoje původní funkční Esri vrstva.
-  // Tu neměníme.
-  //
 
   state.mapLayers.popisky =
 
@@ -299,11 +293,11 @@ function initMap() {
         attribution:
           'Tiles &copy; Esri',
 
-        maxZoom:
-          CONFIG.maxZoom,
-
         minZoom:
           CONFIG.minZoom,
+
+        maxZoom:
+          CONFIG.maxZoom,
 
         opacity:
           0.85
@@ -352,13 +346,14 @@ function initMap() {
 
 
 // ============================================================
-// NAČTENÍ GEOJSON Z ARCGIS
+// NAČTENÍ HRANIC Z ARCGIS
 // ============================================================
 
 async function loadBoundaryLayer(
   url,
   layer,
-  layerName
+  layerName,
+  isCountryBoundary
 ) {
 
   try {
@@ -379,19 +374,19 @@ async function loadBoundaryLayer(
       await response.json();
 
 
-    // Kontrola GeoJSON
     if (
       !data ||
-      !data.features
+      !data.features ||
+      data.features.length === 0
     ) {
 
       throw new Error(
-        "ArcGIS nevrátil platný GeoJSON."
+        "ArcGIS nevrátil žádné prvky."
       );
     }
 
 
-    // Přidáme data do existující vrstvy
+    // Přidáme GeoJSON do Leaflet vrstvy
     layer.addData(data);
 
 
@@ -400,6 +395,27 @@ async function loadBoundaryLayer(
       data.features.length,
       "prvků"
     );
+
+
+    // ========================================================
+    // MASKA PRO POPISKY
+    // ========================================================
+
+    //
+    // Jakmile známe přesnou geometrii ČR,
+    // vytvoříme bílou masku mimo ČR.
+    //
+    // Díky tomu může Esri dál poskytovat své popisky,
+    // ale popisky Německa, Polska, Rakouska atd.
+    // budou zakryté.
+    //
+
+    if (isCountryBoundary) {
+
+      createCzechRepublicMask(
+        data
+      );
+    }
 
 
   } catch (error) {
@@ -413,687 +429,31 @@ async function loadBoundaryLayer(
 
 
 // ============================================================
-// NAČTENÍ DAT Z JSON
+// MASKA MIMO ČR
 // ============================================================
 
-async function loadSelectedJson() {
-
-  const selectElem =
-    document.getElementById(
-      "json-select"
-    );
-
-
-  const fileName =
-    selectElem
-      ? selectElem.value
-      : "zajimavosti.json";
-
-
-  // Zrušení předchozího načítání
-  if (state.abortController) {
-
-    state.abortController.abort();
-  }
-
-
-  state.abortController =
-    new AbortController();
-
-
-  try {
-
-    const response =
-      await fetch(
-
-        `${fileName}?v=${Date.now()}`,
-
-        {
-          signal:
-            state.abortController.signal
-        }
-      );
-
-
-    if (!response.ok) {
-
-      throw new Error(
-        `HTTP chyba ${response.status} při načítání ${fileName}`
-      );
-    }
-
-
-    const data =
-      await response.json();
-
-
-    if (
-      !Array.isArray(data) ||
-      data.length === 0
-    ) {
-
-      throw new Error(
-        "Načtený JSON neobsahuje platná data."
-      );
-    }
-
-
-    state.targets =
-      data;
-
-    state.currentIndex =
-      0;
-
-
-    nextRound();
-
-
-  } catch (err) {
-
-    if (
-      err.name === 'AbortError'
-    ) {
-
-      return;
-    }
-
-
-    console.error(
-      "Chyba při načítání JSON dat:",
-      err
-    );
-
-
-    const targetElem =
-      document.getElementById(
-        "target-name"
-      );
-
-
-    if (targetElem) {
-
-      targetElem.textContent =
-        `Nenalezen soubor ${fileName}!`;
-    }
-  }
-}
-
-
-// ============================================================
-// NOVÉ KOLO
-// ============================================================
-
-function nextRound() {
-
-  hideModal();
-
-  clearInterval(
-    state.timer
-  );
-
-  clearMapLayers();
-
-
-  state.userLatLng =
-    null;
-
-  state.isAnswered =
-    false;
-
-
-  const confirmBtn =
-    document.getElementById(
-      "confirm-btn"
-    );
-
-
-  if (confirmBtn) {
-
-    confirmBtn.disabled =
-      true;
-
-
-    confirmBtn.classList.remove(
-      "btn-success",
-      "btn-danger"
-    );
-
-
-    confirmBtn.classList.add(
-      "btn-warning"
-    );
-
-
-    confirmBtn.textContent =
-      "Hotovo ✓";
-  }
-
-
-  if (
-    !state.targets ||
-    state.targets.length === 0
-  ) {
-
-    return;
-  }
-
-
-  if (
-    state.currentIndex >=
-    state.targets.length
-  ) {
-
-    state.currentIndex =
-      0;
-  }
-
-
-  state.currentTarget =
-    state.targets[
-      state.currentIndex
-    ];
-
-
-  state.currentIndex++;
-
-
-  const targetElem =
-    document.getElementById(
-      "target-name"
-    );
-
-
-  if (
-    targetElem &&
-    state.currentTarget
-  ) {
-
-    targetElem.textContent =
-      state.currentTarget.name;
-  }
-
-
-  resetTimer();
-}
-
-
-// ============================================================
-// KLIKNUTÍ DO MAPY
-// ============================================================
-
-function handleMapClick(e) {
-
-  if (
-    state.isAnswered ||
-    !state.currentTarget
-  ) {
-
-    return;
-  }
-
-
-  state.userLatLng =
-    L.latLng(
-
-      e.latlng.lat,
-
-      e.latlng.lng
-    );
-
-
-  // ==========================================================
-  // ORANŽOVÝ BOD
-  // ==========================================================
-
-  if (
-    !state.markers.userMarker
-  ) {
-
-    state.markers.userMarker =
-
-      L.circleMarker(
-
-        state.userLatLng,
-
-        {
-
-          radius: 9,
-
-          fillColor: '#ff922b',
-
-          color: '#ffffff',
-
-          weight: 2,
-
-          fillOpacity: 1
-        }
-
-      ).addTo(
-        state.map
-      );
-
-  } else {
-
-    state.markers.userMarker
-      .setLatLng(
-        state.userLatLng
-      );
-  }
-
-
-  // Aktivace tlačítka Hotovo
-  const confirmBtn =
-    document.getElementById(
-      "confirm-btn"
-    );
-
-
-  if (confirmBtn) {
-
-    confirmBtn.disabled =
-      false;
-  }
-}
-
-
-// ============================================================
-// VYHODNOCENÍ ODPOVĚDI
-// ============================================================
-
-function evaluateAnswer() {
-
-  if (
-    state.isAnswered ||
-    !state.userLatLng ||
-    !state.currentTarget
-  ) {
-
-    return;
-  }
-
-
-  state.isAnswered =
-    true;
-
-
-  clearInterval(
-    state.timer
-  );
-
-
-  // Správná poloha
-  const targetLatLng =
-    L.latLng(
-
-      state.currentTarget.coords[0],
-
-      state.currentTarget.coords[1]
-    );
-
-
-  // Vzdálenost
-  const distanceKm =
-
-    Math.round(
-
-      state.userLatLng
-        .distanceTo(
-          targetLatLng
-        ) / 1000
-    );
-
-
-  // Vyhodnocení
-  const isSuccess =
-    distanceKm <=
-    CONFIG.toleranceKm;
-
-
-  // Barva výsledku
-  const finalColor =
-    isSuccess
-      ? '#198754'
-      : '#dc3545';
-
-
-  // Změna barvy uživatelského bodu
-  state.markers.userMarker
-    .setStyle({
-
-      fillColor:
-        finalColor
-    });
-
-
-  // ==========================================================
-  // SPRÁVNÝ CÍL
-  // ==========================================================
-
-  state.markers.targetMarker =
-
-    L.circleMarker(
-
-      targetLatLng,
-
-      {
-
-        radius: 7,
-
-        fillColor: '#212529',
-
-        color: '#ffffff',
-
-        weight: 2,
-
-        fillOpacity: 1
-      }
-
-    ).addTo(
-      state.map
-    );
-
-
-  // ==========================================================
-  // SPOJOVACÍ ČÁRA
-  // ==========================================================
-
-  state.markers.polyline =
-
-    L.polyline(
-
-      [
-
-        state.userLatLng,
-
-        targetLatLng
-
-      ],
-
-      {
-
-        color:
-          finalColor,
-
-        weight:
-          3,
-
-        dashArray:
-          '5, 8'
-      }
-
-    ).addTo(
-      state.map
-    );
-
-
-  // ==========================================================
-  // SKÓRE
-  // ==========================================================
-
-  if (isSuccess) {
-
-    state.score += 1;
-
-    updateScoreUI();
-  }
-
-
-  // ==========================================================
-  // VÝSLEDEK
-  // ==========================================================
-
-  showModal(
-
-    isSuccess
-      ? 'Výborně!'
-      : 'Mimo toleranci',
-
-    `Vedle o <strong>${distanceKm} km</strong>.<br>
-     Tolerance pro získání bodu je
-     ${CONFIG.toleranceKm} km.`
-  );
-}
-
-
-// ============================================================
-// VYPRŠENÍ ČASU
-// ============================================================
-
-function handleTimeout() {
-
-  if (state.isAnswered) {
-
-    return;
-  }
-
-
-  state.isAnswered =
-    true;
-
-
-  const targetLatLng =
-    L.latLng(
-
-      state.currentTarget.coords[0],
-
-      state.currentTarget.coords[1]
-    );
-
-
-  // Správná poloha
-  state.markers.targetMarker =
-
-    L.circleMarker(
-
-      targetLatLng,
-
-      {
-
-        radius: 9,
-
-        fillColor: '#dc3545',
-
-        color: '#ffffff',
-
-        weight: 2,
-
-        fillOpacity: 1
-      }
-
-    ).addTo(
-      state.map
-    );
-
-
-  showModal(
-
-    'Čas vypršel!',
-
-    `Správná poloha pro
-     <strong>${state.currentTarget.name}</strong>
-     byla zobrazena na mapě.`
-  );
-}
-
-
-// ============================================================
-// ČASOVAČ
-// ============================================================
-
-function resetTimer() {
-
-  clearInterval(
-    state.timer
-  );
-
-
-  state.timeLeft =
-    CONFIG.roundTime;
-
-
-  updateTimerUI();
-
-
-  state.timer =
-
-    setInterval(
-
-      () => {
-
-        state.timeLeft--;
-
-        updateTimerUI();
-
-
-        if (
-          state.timeLeft <= 0
-        ) {
-
-          clearInterval(
-            state.timer
-          );
-
-          handleTimeout();
-        }
-
-      },
-
-      1000
-    );
-}
-
-
-// ============================================================
-// VYČIŠTĚNÍ HERNÍCH BODŮ
-// ============================================================
-
-function clearMapLayers() {
-
-  Object.keys(
-    state.markers
-  ).forEach(
-
-    key => {
-
-      if (
-        state.markers[key]
-      ) {
-
-        state.map.removeLayer(
-          state.markers[key]
-        );
-
-
-        state.markers[key] =
-          null;
-      }
-    }
-  );
-}
-
-
-// ============================================================
-// UI – SKÓRE
-// ============================================================
-
-function updateScoreUI() {
-
-  const scoreElem =
-    document.getElementById(
-      "score"
-    );
-
-
-  if (scoreElem) {
-
-    scoreElem.textContent =
-      state.score;
-  }
-}
-
-
-// ============================================================
-// UI – ČAS
-// ============================================================
-
-function updateTimerUI() {
-
-  const timerElem =
-    document.getElementById(
-      "timer"
-    );
-
-
-  if (timerElem) {
-
-    timerElem.textContent =
-      state.timeLeft;
-  }
-}
-
-
-// ============================================================
-// MODÁLNÍ OKNO – ZOBRAZENÍ
-// ============================================================
-
-function showModal(
-  title,
-  text
+function createCzechRepublicMask(
+  geojson
 ) {
 
-  const titleElem =
-    document.getElementById(
-      "modal-title"
+  // Pokud už maska existuje,
+  // odstraníme ji.
+  if (
+    state.mapLayers.maskaPopisku
+  ) {
+
+    state.map.removeLayer(
+      state.mapLayers.maskaPopisku
     );
 
-  const textElem =
-    document.getElementById(
-      "modal-text"
-    );
-
-  const overlayElem =
-    document.getElementById(
-      "overlay"
-    );
-
-
-  if (titleElem) {
-
-    titleElem.textContent =
-      title;
+    state.mapLayers.maskaPopisku =
+      null;
   }
 
 
-  if (textElem) {
+  // ----------------------------------------------------------
+  // Vnější hranice mapy
+  // ----------------------------------------------------------
 
-    textElem.innerHTML =
-      text;
-  }
-
-
-  if (overlayElem) {
-
-    overlayElem.style.display =
-      "flex";
-  }
-}
-
-
-// ============================================================
-// MODÁLNÍ OKNO – SKRYTÍ
-// ============================================================
-
-function hideModal() {
-
-  const overlayElem =
-    document.getElementById(
-      "overlay"
-    );
-
-
-  if (overlayElem) {
-
-    overlayElem.style.display =
-      "none";
-  }
-}
+  //
+  // Velký obdélník
