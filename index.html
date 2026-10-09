@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Máme rádi Česko – Tajenka</title>
+  <title>Máme rádi Česko – Blikající Tajenka</title>
 
   <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -66,14 +66,16 @@
       text-transform: uppercase;
       color: transparent; /* Skryté písmeno */
       box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-      transition: all 0.2s ease;
+      transition: all 0.15s ease-in-out;
     }
 
-    /* Odkryté písmeno */
+    /* Odkryté / Blikající písmeno */
     .letter-box.revealed {
       background: #f1c40f;
       color: #2c3e50;
       border-color: #ffffff;
+      transform: scale(1.05);
+      box-shadow: 0 0 15px rgba(241, 196, 15, 0.8);
     }
 
     /* Mezera mezi slovy */
@@ -84,12 +86,16 @@
       width: 35px;
     }
 
-    /* Velké tlačítko STOP */
-    .btn-stop {
-      font-size: 2rem;
-      padding: 1rem 3.5rem;
+    /* Tlačítka a stavové upozornění */
+    .btn-pause {
+      font-size: 1.5rem;
+      padding: 0.8rem 2.5rem;
       border-radius: 50px;
-      box-shadow: 0 0 25px rgba(231, 76, 60, 0.6);
+    }
+
+    .status-badge {
+      font-size: 1.1rem;
+      letter-spacing: 0.5px;
     }
 
     /* Přizpůsobení na mobilu */
@@ -121,26 +127,40 @@
   <div class="main-container">
     <div class="game-card text-center">
       <h1 class="h3 fw-bold text-warning mb-2">Poznej zeměpisný pojem</h1>
-      <p class="text-light opacity-75">Stiskni <kbd class="bg-dark text-warning border border-secondary px-2 py-1">MEZERNÍK</kbd> pro zastavení!</p>
+      <p class="text-light opacity-75 mb-3">
+        Stiskni <kbd class="bg-dark text-warning border border-secondary px-2 py-1">MEZERNÍK</kbd> pro <strong>PAUZU / SPŮŠTĚNÍ</strong> blikání.
+      </p>
+
+      <div id="status-container" class="mb-2">
+        <span id="status-indicator" class="badge bg-success status-badge px-3 py-2">▶ Blikání běží</span>
+      </div>
 
       <!-- Zde se vykreslí obdélníčky -->
       <div id="word-container" class="word-container"></div>
 
-      <!-- Tlačítko STOP -->
-      <div id="controls-section" class="mt-4">
-        <button id="stop-btn" class="btn btn-danger btn-stop fw-bold">🛑 STOP!</button>
+      <!-- Tlačítka dole -->
+      <div class="d-flex justify-content-center gap-3 mt-4">
+        <button id="pause-btn" class="btn btn-outline-warning btn-pause fw-bold">⏸ PAUZA (Mezerník)</button>
+        <button id="reveal-all-btn" class="btn btn-danger btn-pause fw-bold">👁 Odhalit vše</button>
       </div>
     </div>
   </div>
 
   <script>
-    // Konfigurace a stav
+    // Nastavení časování (v milisekundách)
+    const TIMING = {
+      spawnInterval: 850,  // Každých 0.85s blikne nové písmeno
+      displayDuration: 950  // Písmeno zůstane svítit 0.95s (krátké překrytí)
+    };
+
     const JSON_FILE = 'zajimavosti.json';
     let locations = [];
     let currentIndex = 0;
     let currentWord = "";
-    let revealInterval = null;
-    let isStopped = false;
+    
+    let spawnTimer = null;
+    let isPaused = false;
+    let activeTimeouts = []; // Pro bezpečné mazání časovačů zhasnutí
 
     document.addEventListener("DOMContentLoaded", () => {
       loadJsonData();
@@ -148,13 +168,14 @@
       // Posluchače událostí
       document.getElementById("prev-btn").addEventListener("click", showPreviousWord);
       document.getElementById("next-btn").addEventListener("click", showNextWord);
-      document.getElementById("stop-btn").addEventListener("click", stopAndRevealAll);
+      document.getElementById("pause-btn").addEventListener("click", togglePause);
+      document.getElementById("reveal-all-btn").addEventListener("click", revealAllBoxes);
 
-      // Klávesová zkratka pro MEZERNÍK
+      // Klávesová zkratka pro MEZERNÍK – přepíná Pauzu/Spuštění
       document.addEventListener("keydown", (e) => {
         if (e.code === "Space") {
           e.preventDefault(); // Zamezí posunu stránky
-          stopAndRevealAll();
+          togglePause();
         }
       });
     });
@@ -178,8 +199,9 @@
 
     // Příprava slova a vykreslení políček
     function setupWord() {
-      clearInterval(revealInterval);
-      isStopped = false;
+      stopTimers();
+      isPaused = false;
+      updateStatusUI();
 
       const location = locations[currentIndex];
       currentWord = (location.name || location.nazev || "").toUpperCase();
@@ -189,11 +211,6 @@
 
       const container = document.getElementById("word-container");
       container.innerHTML = "";
-
-      // Obnovení stavu tlačítka STOP
-      const stopBtn = document.getElementById("stop-btn");
-      stopBtn.disabled = false;
-      stopBtn.classList.remove("opacity-50");
 
       // Vykreslení prázdných obdélníčků
       for (let i = 0; i < currentWord.length; i++) {
@@ -210,48 +227,104 @@
         container.appendChild(box);
       }
 
-      // Spuštění časovače - každých 1.2s se odkryje náhodné políčko
-      revealInterval = setInterval(revealRandomBox, 1200);
+      // Spuštění intervalu blikání
+      startSpawning();
     }
 
-    // Náhodné odkrytí jednoho políčka
-    function revealRandomBox() {
-      if (isStopped) return;
+    // Spuštění blikání
+    function startSpawning() {
+      stopTimers();
+      spawnTimer = setInterval(flashRandomBox, TIMING.spawnInterval);
+    }
+
+    // Náhodné rozsvícení jednoho políčka a jeho následné zhasnutí
+    function flashRandomBox() {
+      if (isPaused) return;
 
       const boxes = document.querySelectorAll(".letter-box:not(.space)");
       if (boxes.length === 0) return;
 
       // Vybereme náhodný obdélníček
       const randomIndex = Math.floor(Math.random() * boxes.length);
-      boxes[randomIndex].classList.add("revealed");
+      const targetBox = boxes[randomIndex];
+
+      // Rozsvítíme ho
+      targetBox.classList.add("revealed");
+
+      // Nastavíme zhasnutí za nastavený čas (displayDuration)
+      const hideTimeout = setTimeout(() => {
+        if (!isPaused) {
+          targetBox.classList.remove("revealed");
+        }
+      }, TIMING.displayDuration);
+
+      activeTimeouts.push(hideTimeout);
     }
 
-    // Zastavení odkrývání a odhalení celého slova
-    function stopAndRevealAll() {
-      if (isStopped) return;
+    // Přepínání Pauza / Běh (Toggle mezerníkem)
+    function togglePause() {
+      isPaused = !isPaused;
 
-      isStopped = true;
-      clearInterval(revealInterval);
+      if (isPaused) {
+        // Při pauze zastavíme generování nově blikajících písmen
+        clearInterval(spawnTimer);
+      } else {
+        // Zhasneme všechna předešlá svítící písmena a znovu rozběhneme
+        clearFlashingBoxes();
+        startSpawning();
+      }
 
-      // Odkryjeme všechna políčka
+      updateStatusUI();
+    }
+
+    // Odhalení celého slova (např. pro kontrolu po uhodnutí)
+    function revealAllBoxes() {
+      stopTimers();
+      isPaused = true;
+      updateStatusUI();
+
       document.querySelectorAll(".letter-box:not(.space)").forEach(box => {
         box.classList.add("revealed");
       });
-
-      // Deaktivujeme tlačítko STOP
-      const stopBtn = document.getElementById("stop-btn");
-      stopBtn.disabled = true;
-      stopBtn.classList.add("opacity-50");
     }
 
-    // Navigace: Další slovo
+    // Pomocná čistící funkce pro časovače
+    function stopTimers() {
+      clearInterval(spawnTimer);
+      activeTimeouts.forEach(t => clearTimeout(t));
+      activeTimeouts = [];
+    }
+
+    function clearFlashingBoxes() {
+      document.querySelectorAll(".letter-box:not(.space)").forEach(box => {
+        box.classList.remove("revealed");
+      });
+    }
+
+    function updateStatusUI() {
+      const indicator = document.getElementById("status-indicator");
+      const pauseBtn = document.getElementById("pause-btn");
+
+      if (isPaused) {
+        indicator.textContent = "⏸ PAUZA (Blikání pozastaveno)";
+        indicator.className = "badge bg-warning text-dark status-badge px-3 py-2";
+        pauseBtn.textContent = "▶ SPUSTIT (Mezerník)";
+        pauseBtn.className = "btn btn-success btn-pause fw-bold";
+      } else {
+        indicator.textContent = "▶ Blikání běží";
+        indicator.className = "badge bg-success status-badge px-3 py-2";
+        pauseBtn.textContent = "⏸ PAUZA (Mezerník)";
+        pauseBtn.className = "btn btn-outline-warning btn-pause fw-bold";
+      }
+    }
+
+    // Navigace
     function showNextWord() {
       if (locations.length === 0) return;
       currentIndex = (currentIndex + 1) % locations.length;
       setupWord();
     }
 
-    // Navigace: Předchozí slovo
     function showPreviousWord() {
       if (locations.length === 0) return;
       currentIndex = (currentIndex - 1 + locations.length) % locations.length;
