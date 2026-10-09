@@ -2,62 +2,261 @@
 <html lang="cs">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Slepá mapa ČR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Máme rádi Česko – Tajenka</title>
 
-  <!-- CSS Knihovny -->
+  <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="style.css">
-</head>
-<body class="d-flex flex-column vh-100 overflow-hidden bg-light">
 
-  <!-- Navigace -->
-  <header class="navbar navbar-dark bg-dark px-3 shadow-sm">
-    <span class="navbar-brand mb-0 h1 fs-4 fw-bold">Slepá mapa ČR</span>
-    
-    <!-- Výběr kategorie JSON -->
-    <div class="ms-auto d-flex align-items-center me-3">
-      <label for="json-select" class="text-white me-2 fw-medium">Kategorie:</label>
-      <select id="json-select" class="form-select form-select-sm">
-        <option value="zajimavosti.json">Zajímavosti a rekordy</option>
-        <option value="mesta.json">Města</option>
-        <option value="priroda.json">Hory a vrcholy (příroda)</option>
-        <option value="zamky.json">Zámky</option>
-         <option value="zajimavosti.json">Zajímavosti</option>
-      </select>
-    </div>
-    
-    <div class="d-flex gap-2 align-items-center">
-      <div class="badge bg-secondary fs-6 px-3 py-2">Skóre: <span id="score" class="text-warning">0</span></div>
-      <div class="badge bg-secondary fs-6 px-3 py-2">Čas: <span id="timer" class="text-info">30</span>s</div>
-      <button id="next-header-btn" class="btn btn-outline-light btn-sm fw-bold ms-1">Další ➔</button>
+  <style>
+    body {
+      background-color: #1a252f;
+      color: #ffffff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: system-ui, -apple-system, sans-serif;
+      user-select: none;
+    }
+
+    /* Záhlaví s navigací */
+    header {
+      background-color: #2c3e50;
+      border-bottom: 2px solid #34495e;
+    }
+
+    .main-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+
+    .game-card {
+      background: #2c3e50;
+      border-radius: 1.5rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      max-width: 900px;
+      width: 100%;
+      padding: 3rem 2rem;
+    }
+
+    /* Mřížka pro obdélníčky s písmeny */
+    .word-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+      margin: 3rem 0;
+    }
+
+    /* Jednotlivý obdélníček pro písmeno */
+    .letter-box {
+      width: 60px;
+      height: 75px;
+      background: #34495e;
+      border: 3px solid #f39c12;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: transparent; /* Skryté písmeno */
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+      transition: all 0.2s ease;
+    }
+
+    /* Odkryté písmeno */
+    .letter-box.revealed {
+      background: #f1c40f;
+      color: #2c3e50;
+      border-color: #ffffff;
+    }
+
+    /* Mezera mezi slovy */
+    .letter-box.space {
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      width: 35px;
+    }
+
+    /* Velké tlačítko STOP */
+    .btn-stop {
+      font-size: 2rem;
+      padding: 1rem 3.5rem;
+      border-radius: 50px;
+      box-shadow: 0 0 25px rgba(231, 76, 60, 0.6);
+    }
+
+    /* Přizpůsobení na mobilu */
+    @media (max-width: 576px) {
+      .letter-box {
+        width: 42px;
+        height: 55px;
+        font-size: 1.8rem;
+        gap: 6px;
+      }
+      .letter-box.space {
+        width: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Záhlaví s tlačítky Zpět a Další -->
+  <header class="p-3 shadow-sm">
+    <div class="container-fluid d-flex justify-content-between align-items-center">
+      <button id="prev-btn" class="btn btn-outline-light fw-bold">◀ Zpět</button>
+      <div id="counter-badge" class="badge bg-secondary fs-6 px-3 py-2">Pojem 1 / 1</div>
+      <button id="next-btn" class="btn btn-warning fw-bold">Další ▶</button>
     </div>
   </header>
 
-  <!-- Target Banner s tlačítkem Hotovo -->
-  <div id="target-container" class="bg-secondary text-white d-flex justify-content-center align-items-center py-2 px-3 shadow-sm gap-3">
-    <div>
-      <span class="fs-5 fw-medium">Najdi na mapě: </span>
-      <span id="target-name" class="fs-4 fw-bold text-warning d-inline-block ms-1">Načítám data...</span>
-    </div>
-    <button id="confirm-btn" class="btn btn-warning btn-sm fw-bold px-3 shadow-sm" disabled>Hotovo ✓</button>
-  </div>
+  <!-- Hlavní herní plocha -->
+  <div class="main-container">
+    <div class="game-card text-center">
+      <h1 class="h3 fw-bold text-warning mb-2">Poznej zeměpisný pojem</h1>
+      <p class="text-light opacity-75">Stiskni <kbd class="bg-dark text-warning border border-secondary px-2 py-1">MEZERNÍK</kbd> pro zastavení!</p>
 
-  <!-- Mapa -->
-  <div id="map" class="flex-grow-1"></div>
+      <!-- Zde se vykreslí obdélníčky -->
+      <div id="word-container" class="word-container"></div>
 
-  <!-- Modal / Výsledkové okno -->
-  <div id="overlay" class="position-fixed top-0 start-0 w-100 h-100 justify-content-center align-items-center">
-    <div class="card shadow-lg p-4 text-center border-0 modal-card">
-      <h2 id="modal-title" class="h3 fw-bold mb-3 text-dark">Vyhodnocení</h2>
-      <p id="modal-text" class="fs-5 text-muted mb-4"></p>
-      <button id="next-btn" class="btn btn-success btn-lg fw-bold py-2 px-4 shadow-sm">Další otázka</button>
+      <!-- Tlačítko STOP -->
+      <div id="controls-section" class="mt-4">
+        <button id="stop-btn" class="btn btn-danger btn-stop fw-bold">🛑 STOP!</button>
+      </div>
     </div>
   </div>
 
-  <!-- Skripty -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js"></script>
+  <script>
+    // Konfigurace a stav
+    const JSON_FILE = 'zajimavosti.json';
+    let locations = [];
+    let currentIndex = 0;
+    let currentWord = "";
+    let revealInterval = null;
+    let isStopped = false;
+
+    document.addEventListener("DOMContentLoaded", () => {
+      loadJsonData();
+
+      // Posluchače událostí
+      document.getElementById("prev-btn").addEventListener("click", showPreviousWord);
+      document.getElementById("next-btn").addEventListener("click", showNextWord);
+      document.getElementById("stop-btn").addEventListener("click", stopAndRevealAll);
+
+      // Klávesová zkratka pro MEZERNÍK
+      document.addEventListener("keydown", (e) => {
+        if (e.code === "Space") {
+          e.preventDefault(); // Zamezí posunu stránky
+          stopAndRevealAll();
+        }
+      });
+    });
+
+    // Načtení dat z JSONu
+    async function loadJsonData() {
+      try {
+        const response = await fetch(`${JSON_FILE}?v=${Date.now()}`);
+        if (!response.ok) throw new Error("Nelze načíst soubor");
+        
+        locations = await response.json();
+        if (locations.length > 0) {
+          currentIndex = 0;
+          setupWord();
+        }
+      } catch (err) {
+        console.error("Chyba při načítání JSON:", err);
+        document.getElementById("word-container").innerHTML = `<div class="text-danger fs-4 fw-bold">Nelze načíst soubor ${JSON_FILE}!</div>`;
+      }
+    }
+
+    // Příprava slova a vykreslení políček
+    function setupWord() {
+      clearInterval(revealInterval);
+      isStopped = false;
+
+      const location = locations[currentIndex];
+      currentWord = (location.name || location.nazev || "").toUpperCase();
+
+      // Aktualizace čítače v hlavičce
+      document.getElementById("counter-badge").textContent = `Pojem ${currentIndex + 1} / ${locations.length}`;
+
+      const container = document.getElementById("word-container");
+      container.innerHTML = "";
+
+      // Obnovení stavu tlačítka STOP
+      const stopBtn = document.getElementById("stop-btn");
+      stopBtn.disabled = false;
+      stopBtn.classList.remove("opacity-50");
+
+      // Vykreslení prázdných obdélníčků
+      for (let i = 0; i < currentWord.length; i++) {
+        const char = currentWord[i];
+        const box = document.createElement("div");
+        box.classList.add("letter-box");
+
+        if (char === " " || char === "-") {
+          box.classList.add("space");
+        } else {
+          box.textContent = char;
+        }
+
+        container.appendChild(box);
+      }
+
+      // Spuštění časovače - každých 1.2s se odkryje náhodné políčko
+      revealInterval = setInterval(revealRandomBox, 1200);
+    }
+
+    // Náhodné odkrytí jednoho políčka
+    function revealRandomBox() {
+      if (isStopped) return;
+
+      const boxes = document.querySelectorAll(".letter-box:not(.space)");
+      if (boxes.length === 0) return;
+
+      // Vybereme náhodný obdélníček
+      const randomIndex = Math.floor(Math.random() * boxes.length);
+      boxes[randomIndex].classList.add("revealed");
+    }
+
+    // Zastavení odkrývání a odhalení celého slova
+    function stopAndRevealAll() {
+      if (isStopped) return;
+
+      isStopped = true;
+      clearInterval(revealInterval);
+
+      // Odkryjeme všechna políčka
+      document.querySelectorAll(".letter-box:not(.space)").forEach(box => {
+        box.classList.add("revealed");
+      });
+
+      // Deaktivujeme tlačítko STOP
+      const stopBtn = document.getElementById("stop-btn");
+      stopBtn.disabled = true;
+      stopBtn.classList.add("opacity-50");
+    }
+
+    // Navigace: Další slovo
+    function showNextWord() {
+      if (locations.length === 0) return;
+      currentIndex = (currentIndex + 1) % locations.length;
+      setupWord();
+    }
+
+    // Navigace: Předchozí slovo
+    function showPreviousWord() {
+      if (locations.length === 0) return;
+      currentIndex = (currentIndex - 1 + locations.length) % locations.length;
+      setupWord();
+    }
+  </script>
 </body>
 </html>
