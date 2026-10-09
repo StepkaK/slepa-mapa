@@ -54,6 +54,7 @@ const state = {
 
   // Byla již odpověď vyhodnocena?
   isAnswered: false,
+  userLatLng: null,
 
   // Pozice, kam hráč kliknul.
   userLatLng: null,
@@ -144,6 +145,7 @@ function initEventListeners() {
   const nextHeaderBtn = document.getElementById('next-header-btn');
   const confirmBtn = document.getElementById('confirm-btn');
 
+  // Výběr JSON kategorie.
   if (jsonSelect) {
     jsonSelect.addEventListener('change', loadSelectedJson);
   }
