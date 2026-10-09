@@ -396,6 +396,7 @@ function handleMapClick(event) {
 
   state.userLatLng = event.latlng;
 
+  // Bezpečně smažeme předchozí rozpracovaný tip
   if (mapLayers.userMarker) {
     map.removeLayer(mapLayers.userMarker);
     mapLayers.userMarker = null;
@@ -430,7 +431,6 @@ function confirmAnswer() {
   state.isAnswered = true;
   stopTimer();
 
-  // Podpora souřadnic jak pro [lat, lon], tak pro objekt {lat, lon}
   const targetLat = target.lat ?? target.coords?.[0];
   const targetLon = target.lon ?? target.coords?.[1];
   const targetLatLng = L.latLng(targetLat, targetLon);
@@ -484,6 +484,12 @@ function handleTimeout() {
   const targetLat = target.lat ?? target.coords?.[0];
   const targetLon = target.lon ?? target.coords?.[1];
   const targetLatLng = L.latLng(targetLat, targetLon);
+
+  // Pokud hráč před vypršením času stihl kliknout, smažeme starý žlutý marker
+  if (mapLayers.userMarker) {
+    map.removeLayer(mapLayers.userMarker);
+    mapLayers.userMarker = null;
+  }
 
   mapLayers.targetMarker = L.circleMarker(targetLatLng, {
     radius: 9,
@@ -590,6 +596,13 @@ function stopTimer() {
 function renderResultOnMap(userLatLng, targetLatLng, isSuccess) {
   const markerColor = isSuccess ? '#198754' : '#dc3545';
 
+  // Smažeme dočasný žlutý marker z rozpracovaného tipu
+  if (mapLayers.userMarker) {
+    map.removeLayer(mapLayers.userMarker);
+    mapLayers.userMarker = null;
+  }
+
+  // Vykreslíme finální vyhodnocený tip (zelený / červený)
   mapLayers.userMarker = L.circleMarker(userLatLng, {
     radius: 9,
     fillColor: markerColor,
@@ -598,6 +611,7 @@ function renderResultOnMap(userLatLng, targetLatLng, isSuccess) {
     fillOpacity: 0.9
   }).addTo(map);
 
+  // Vykreslíme cílový bod (černý)
   mapLayers.targetMarker = L.circleMarker(targetLatLng, {
     radius: 7,
     fillColor: '#212529',
@@ -606,6 +620,7 @@ function renderResultOnMap(userLatLng, targetLatLng, isSuccess) {
     fillOpacity: 1
   }).addTo(map);
 
+  // Vykreslíme spojovací čáru
   mapLayers.polyline = L.polyline([userLatLng, targetLatLng], {
     color: markerColor,
     weight: 4,
@@ -614,7 +629,7 @@ function renderResultOnMap(userLatLng, targetLatLng, isSuccess) {
 }
 
 /**
- * Odstraní herní prkvy z kola (maska a kraje zůstávají).
+ * Důkladně odstraní herní prvky z kola (maska a kraje zůstávají).
  */
 function clearRoundLayers() {
   ['userMarker', 'targetMarker', 'polyline'].forEach((layerName) => {
